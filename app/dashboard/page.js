@@ -9,13 +9,13 @@ import { Headphones, Send } from "lucide-react";
 import { collection, onSnapshot, doc, updateDoc, arrayUnion, increment } from "firebase/firestore";
 
 // Level/XP logic lives in one shared file, imported by both this page and
-// the /api/tournament/join route â€” this is what keeps the DB's level and
+// the /api/tournament/join route — this is what keeps the DB's level and
 // the UI's level from ever drifting apart. Don't redefine these locally.
 import { getTotalMatchesForLevel, calculateLevelFromMatches, MAX_PLAYER_LEVEL } from "../lib/levelConfig";
 
 const MAX_LEVEL = MAX_PLAYER_LEVEL;
 
-// â”€â”€â”€ Crown Reward Table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Crown Reward Table ───────────────────────────────────────────────────────
 const CROWN_REWARD_TABLE = [
   { level: 1,  crowns: 5,   bumper: false },
   { level: 5,  crowns: 10,  bumper: false },
@@ -73,16 +73,16 @@ export default function DashboardPage() {
     }
   };
 
-  // â”€â”€â”€ Wallet & Crown States â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Wallet & Crown States ──────────────────────────────────────────────────
   const [depositWallet, setDepositWallet]   = useState(0);
   const [winningsWallet, setWinningsWallet] = useState(0);
   const [crowns, setCrowns]                 = useState(0);
 
-  // â”€â”€â”€ Screenshot Upload States â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Screenshot Upload States ───────────────────────────────────────────────
   const [matchScreenshot, setMatchScreenshot] = useState(null);
   const [uploadingSS, setUploadingSS]         = useState(false);
 
-  // â”€â”€â”€ Player Level / XP / Protection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Player Level / XP / Protection ────────────────────────────────────────
   const [playerLevel, setPlayerLevel]             = useState(1);
   const [matchesPlayed, setMatchesPlayed]         = useState(0);
   const [protectionPoints, setProtectionPoints]   = useState(5);
@@ -92,12 +92,12 @@ export default function DashboardPage() {
   const [levelUpCrownMsg, setLevelUpCrownMsg] = useState(null);
   const prevLevelRef = useRef(null);
 
-  // â”€â”€â”€ 2D Info / XP Info Modals (realtime tooltip style) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── 2D Info / XP Info Modals (realtime tooltip style) ─────────────────────
   const [redeemMessage, setRedeemMessage]               = useState(null);
   const [inactivityModalMessage, setInactivityModalMessage] = useState(null);
   const [xpModalMessage, setXpModalMessage]             = useState(null);
 
-  // â”€â”€â”€ UPI / Withdraw Modals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── UPI / Withdraw Modals ──────────────────────────────────────────────────
   const [isUpiModalOpen, setIsUpiModalOpen]         = useState(false);
   const [addAmount, setAddAmount]                   = useState(100);
   const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
@@ -105,13 +105,13 @@ export default function DashboardPage() {
   const [withdrawUpiId, setWithdrawUpiId]           = useState("");
   const [withdrawMessage, setWithdrawMessage]       = useState(null);
 
-  // â”€â”€â”€ About / Support Modals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── About / Support Modals ─────────────────────────────────────────────────
   const [isAboutModalOpen, setIsAboutModalOpen]     = useState(false);
   const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
   const [supportQuery, setSupportQuery]             = useState("");
   const [shareMessage, setShareMessage]             = useState(null);
 
-  // â”€â”€â”€ Multi-Step Tournament Join â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Multi-Step Tournament Join ─────────────────────────────────────────────
   const [activeMatch, setActiveMatch]                   = useState(null);
   const [isRulesModalOpen, setIsRulesModalOpen]         = useState(false);
   const [hasAgreedRules, setHasAgreedRules]             = useState(false);
@@ -119,14 +119,14 @@ export default function DashboardPage() {
   const [isDetailsFormModalOpen, setIsDetailsFormModalOpen] = useState(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen]     = useState(false);
 
-  // â”€â”€â”€ Player Form Inputs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Player Form Inputs ─────────────────────────────────────────────────────
   const [playerWhatsapp, setPlayerWhatsapp]     = useState("");
   const [playerEmailInput, setPlayerEmailInput] = useState("");
   const [playerIgnInput, setPlayerIgnInput]     = useState("");
   const [playerUidInput, setPlayerUidInput]     = useState("");
   const [userEmail, setUserEmail]               = useState("");
 
-  // â”€â”€â”€ Game Profiles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Game Profiles ──────────────────────────────────────────────────────────
   const [bgmiIgn, setBgmiIgn]   = useState("AlphaShadow");
   const [bgmiUid, setBgmiUid]   = useState("5123456789");
   const [ffIgn, setFfIgn]       = useState("FireStorm99");
@@ -137,14 +137,14 @@ export default function DashboardPage() {
   const [tempFfIgn, setTempFfIgn]     = useState(ffIgn);
   const [tempFfUid, setTempFfUid]     = useState(ffUid);
 
-  // â”€â”€â”€ Bio â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Bio ────────────────────────────────────────────────────────────────────
   const [bio, setBio]                 = useState("Ready for the battle! Multi-Game Competitive Esports Player.");
   const [isEditingBio, setIsEditingBio] = useState(false);
   const [tempBio, setTempBio]         = useState(bio);
   const [bioError, setBioError]       = useState(null);
 
   const [selectedGameTab, setSelectedGameTab] = useState("bgmi");
-  // â”€â”€â”€ Background slider â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Background slider ──────────────────────────────────────────────────────
   const bgMedia = [
     { type: "image", url: "https://images.unsplash.com/photo-1542751371-adc38448a05e?q=80&w=1600&auto=format&fit=crop", game: "BGMI Arena" },
     { type: "image", url: "https://images.unsplash.com/photo-1511512578047-dfb367046420?q=80&w=1600&auto=format&fit=crop", game: "Free Fire Clash" },
@@ -155,7 +155,7 @@ export default function DashboardPage() {
     return () => clearInterval(timer);
   }, [bgMedia.length]);
 
-  // â”€â”€â”€ FETCH USER PROFILE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── FETCH USER PROFILE ─────────────────────────────────────────────────────
   const refreshUserProfile = async (uid, email, displayName) => {
     try {
       const res = await fetch(`/api/user/register`, {
@@ -170,8 +170,6 @@ export default function DashboardPage() {
         setCrowns(data.user.crowns ?? 0);
         const totalMatches = data.user.matchesPlayed ?? 0;
         setMatchesPlayed(totalMatches);
-        // Level is derived from matches played, not trusted blindly from
-        // the backend â€” this is what makes level-up reliable.
         const derivedLevel = calculateLevelFromMatches(totalMatches);
         setPlayerLevel(derivedLevel);
         prevLevelRef.current = derivedLevel;
@@ -185,7 +183,7 @@ export default function DashboardPage() {
     }
   };
 
-  // â”€â”€â”€ Auth state change â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Auth state change ──────────────────────────────────────────────────────
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -201,10 +199,7 @@ export default function DashboardPage() {
     return () => unsubscribe();
   }, []);
 
-  // â”€â”€â”€ Recompute level whenever matchesPlayed changes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  // This is the core fix: any time matchesPlayed is updated (profile load,
-  // after joining a tournament, after a match is verified, etc.) the level
-  // is recalculated here. It can never silently fail to level someone up.
+  // ─── Recompute level whenever matchesPlayed changes ────────────────────────
   useEffect(() => {
     const derivedLevel = calculateLevelFromMatches(matchesPlayed);
     if (derivedLevel !== playerLevel) {
@@ -212,10 +207,10 @@ export default function DashboardPage() {
     }
   }, [matchesPlayed]);
 
-  // â”€â”€â”€ Level-up Crown Reward Watcher â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Level-up Crown Reward Watcher ──────────────────────────────────────────
   useEffect(() => {
-    if (prevLevelRef.current === null) return;        // initial load, skip
-    if (playerLevel <= prevLevelRef.current) return;   // no level gained, skip
+    if (prevLevelRef.current === null) return;
+    if (playerLevel <= prevLevelRef.current) return;
 
     const reward = getCrownRewardForLevel(playerLevel);
     if (reward > 0) {
@@ -230,7 +225,7 @@ export default function DashboardPage() {
             setCrowns(d.crowns);
             const isBumper = CROWN_REWARD_TABLE.find((r) => r.level === playerLevel)?.bumper;
             setLevelUpCrownMsg(
-              `${isBumper ? "ðŸŽ‰ Bonus Reward!" : "ðŸ† Level Up!"} You reached Level ${playerLevel} and earned +${reward} ðŸ‘‘ Crowns!`
+              `${isBumper ? "🎉 Bonus Reward!" : "🏆 Level Up!"} You reached Level ${playerLevel} and earned +${reward} 👑 Crowns!`
             );
             setTimeout(() => setLevelUpCrownMsg(null), 5000);
           }
@@ -241,7 +236,7 @@ export default function DashboardPage() {
     prevLevelRef.current = playerLevel;
   }, [playerLevel]);
 
-  // â”€â”€â”€ Tournaments REST fetch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Tournaments REST fetch ─────────────────────────────────────────────────
   useEffect(() => {
     fetch("/api/tournaments")
       .then((r) => r.json())
@@ -254,19 +249,19 @@ export default function DashboardPage() {
     catch (error) { console.error("Logout error:", error); }
   };
 
-  // â”€â”€â”€ Badges Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Badges Config ──────────────────────────────────────────────────────────
   const levelBadgesMap = [
-    { level: 1,  name: "Rookie Bronze",     badge: "ðŸ¥‰" },
-    { level: 5,  name: "Iron Vanguard",     badge: "ðŸ›¡ï¸" },
-    { level: 10, name: "Silver Striker",    badge: "ðŸ¥ˆ" },
-    { level: 15, name: "Gold Gladiator",    badge: "ðŸ¥‡" },
-    { level: 20, name: "Platinum Elite",    badge: "ðŸ’ " },
-    { level: 25, name: "Diamond Predator",  badge: "ðŸ’Ž" },
-    { level: 30, name: "Crown Master",      badge: "ðŸ‘‘" },
-    { level: 35, name: "Ace Conqueror",     badge: "âš¡" },
-    { level: 40, name: "Legendary Titan",   badge: "ðŸŒŸ" },
-    { level: 45, name: "Master Immortal",   badge: "ðŸ”¥" },
-    { level: 50, name: "Mythic Supreme",    badge: "ðŸ†" },
+    { level: 1,  name: "Rookie Bronze",     badge: "🥉" },
+    { level: 5,  name: "Iron Vanguard",     badge: "🛡️" },
+    { level: 10, name: "Silver Striker",    badge: "🥈" },
+    { level: 15, name: "Gold Gladiator",    badge: "🥇" },
+    { level: 20, name: "Platinum Elite",    badge: "💎" },
+    { level: 25, name: "Diamond Predator",  badge: "💠" },
+    { level: 30, name: "Crown Master",      badge: "👑" },
+    { level: 35, name: "Ace Conqueror",     badge: "⚡" },
+    { level: 40, name: "Legendary Titan",   badge: "🌟" },
+    { level: 45, name: "Master Immortal",   badge: "🔥" },
+    { level: 50, name: "Mythic Supreme",    badge: "🏆" },
   ];
 
   const getUnlockedBadges = () => levelBadgesMap.filter((b) => playerLevel >= b.level);
@@ -280,13 +275,13 @@ export default function DashboardPage() {
   };
   const { current: currentTier } = getCurrentTierInfo();
 
-  // â”€â”€â”€ Derived XP progress (for current level) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Derived XP progress (for current level) ────────────────────────────────
   const totalForCurrentLevel = getTotalMatchesForLevel(playerLevel);
   const totalForNextLevel    = getTotalMatchesForLevel(Math.min(playerLevel + 1, MAX_LEVEL));
   const matchesTowardNext    = playerLevel >= MAX_LEVEL ? 0 : Math.max(matchesPlayed - totalForCurrentLevel, 0);
   const matchesNeededForNext = playerLevel >= MAX_LEVEL ? 0 : Math.max(totalForNextLevel - totalForCurrentLevel, 1);
 
-  // â”€â”€â”€ Pagination â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Pagination ─────────────────────────────────────────────────────────────
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 4;
   const filteredTournaments = tournaments.filter((t) =>
@@ -298,7 +293,7 @@ export default function DashboardPage() {
     currentPage * itemsPerPage
   );
 
-  // â”€â”€â”€ Match History â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Match History ──────────────────────────────────────────────────────────
   const [matchHistory, setMatchHistory] = useState([]);
 
   const addMatchHistoryRecord = (tournamentName, mapName, gameType, entryPaid) => {
@@ -328,8 +323,6 @@ export default function DashboardPage() {
       if (data.success) {
         alert("Screenshot uploaded successfully. Our admin team will verify it shortly.");
         setMatchScreenshot(null);
-        // Winning matches typically award XP once verified â€” bump the
-        // lifetime match count here if the backend confirms it immediately.
         if (typeof data.matchesPlayed === "number") setMatchesPlayed(data.matchesPlayed);
       } else {
         alert(`Upload failed: ${data.message}`);
@@ -353,7 +346,7 @@ export default function DashboardPage() {
     return `${Math.floor(h / 24)} days ago`;
   };
 
-  // â”€â”€â”€ XP / 2D Info handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── XP / 2D Info handlers ──────────────────────────────────────────────────
   const handleXpInfoClick = () => {
     setXpModalMessage(
       "Match XP increases automatically every time you join and complete a tournament match. Keep playing regularly to level up."
@@ -364,14 +357,14 @@ export default function DashboardPage() {
   const handleInactivityInfoClick = () => {
     setInactivityModalMessage(
       protectionPoints > 0
-        ? `ðŸ›¡ï¸ Protection active: your rank is currently safeguarded. If you stay inactive for more than 2 days, 1 Protection Point will be used automatically to prevent an XP or rank drop.`
-        : `âš ï¸ You have 0 Protection Points left. If you stay inactive for more than 2 days without joining a match, your XP and rank tier may be penalized.`
+        ? `🛡️ Protection active: your rank is currently safeguarded. If you stay inactive for more than 2 days, 1 Protection Point will be used automatically to prevent an XP or rank drop.`
+        : `⚠️ You have 0 Protection Points left. If you stay inactive for more than 2 days without joining a match, your XP and rank tier may be penalized.`
     );
     setTimeout(() => setInactivityModalMessage(null), 4000);
   };
 
   const handleShareMatch = (match) => {
-    const shareText = `I just joined ${match.tournamentName} (${match.mapName}) on Battle Crown! Join in and compete for cash prizes. ðŸ†`;
+    const shareText = `I just joined ${match.tournamentName} (${match.mapName}) on Battle Crown! Join in and compete for cash prizes. 🏆`;
     if (navigator.share) {
       navigator.share({ title: "Battle Crown Match", text: shareText, url: window.location.href }).catch(() => {});
     } else {
@@ -381,10 +374,10 @@ export default function DashboardPage() {
     }
   };
 
-  // â”€â”€â”€ Crown Redeem â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Crown Redeem ───────────────────────────────────────────────────────────
   const handleRedeemTicket = async () => {
     if (crowns < 20) {
-      setRedeemMessage(`You need 20 Crowns to redeem (current: ${crowns} ðŸ‘‘).`);
+      setRedeemMessage(`You need 20 Crowns to redeem (current: ${crowns} 👑).`);
       setTimeout(() => setRedeemMessage(null), 4000);
       return;
     }
@@ -398,18 +391,17 @@ export default function DashboardPage() {
       if (data.success) {
         setCrowns(data.crowns);
         setDepositWallet(data.depositWallet);
-        setRedeemMessage("Success! 20 Crowns redeemed for a free â‚¹10 match ticket.");
+        setRedeemMessage("Success! 20 Crowns redeemed for a free ₹10 match ticket.");
       } else {
         setRedeemMessage(data.error || "Redemption failed.");
       }
-      
      } catch {
       setRedeemMessage("Server error during redemption.");
     }
     setTimeout(() => setRedeemMessage(null), 4000);
   };
 
-  // â”€â”€â”€ Tournament Card Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ─── Tournament Card Component ──────────────────────────────────────────────
   function TournamentCard({ tournament }) {
     const [currentSlide, setCurrentSlide] = useState(0);
     const gameName    = (tournament.game || tournament.gameType || tournament.title || "").toLowerCase();
@@ -444,7 +436,7 @@ export default function DashboardPage() {
           <div className="absolute inset-0 bg-gradient-to-t from-[#0b0f17] via-transparent to-black/40" />
           <div className="absolute top-2 left-2">
             <span className={`text-[10px] font-mono px-2 py-0.5 border uppercase font-bold ${isFreeFire ? "bg-orange-950 text-orange-400 border-orange-800" : "bg-black/85 text-cyan-400 border-cyan-800"}`}>
-              {isFreeFire ? "ðŸ”¥ FREE FIRE" : "ðŸ›¡ï¸ BGMI"}
+              {isFreeFire ? "🔥 FREE FIRE" : "🛡️ BGMI"}
             </span>
           </div>
           <div className="absolute top-2 right-2">
@@ -464,7 +456,7 @@ export default function DashboardPage() {
           </div>
           <div>
             <span className="text-[10px] text-gray-400 font-mono uppercase block">ENTRY FEE</span>
-            <span className="text-xs font-mono font-bold text-green-400">â‚¹{tournament.entryFee}</span>
+            <span className="text-xs font-mono font-bold text-green-400">₹{tournament.entryFee}</span>
           </div>
           <button
             onClick={handleCardJoinClick}
@@ -483,7 +475,7 @@ export default function DashboardPage() {
       </div>
     );
   }
-  // â”€â”€â”€ Loading Screen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#0b0f17] flex items-center justify-center text-cyan-400 font-mono text-sm animate-pulse">
@@ -492,9 +484,6 @@ export default function DashboardPage() {
     );
   }
 
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-  // RENDER
-  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
   return (
     <main className="min-h-screen bg-[#0b0f17]/90 text-white p-6 relative overflow-hidden font-mono">
       {/* Background */}
@@ -503,24 +492,24 @@ export default function DashboardPage() {
         <div className="absolute inset-0 bg-gradient-to-t from-[#0b0f17] via-[#0b0f17]/50 to-transparent" />
       </div>
 
-      {/* â”€â”€ Level-Up Crown Toast â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* Level-Up Crown Toast */}
       {levelUpCrownMsg && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] bg-yellow-950 border border-yellow-500 text-yellow-300 text-xs font-bold px-5 py-3 rounded-lg shadow-2xl animate-bounce text-center max-w-xs">
           {levelUpCrownMsg}
         </div>
       )}
 
-      {/* â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* Header */}
       <header className="flex justify-between items-center border-b border-gray-800 pb-4 mb-8 relative z-10">
         <div className="flex items-center gap-2">
           <span className="text-xl font-black tracking-tighter italic">BATTLE <span className="text-cyan-400">CROWN</span></span>
           <span className="text-[10px] bg-red-600 text-white font-bold px-1.5 py-0.5 uppercase">DUAL-GAME ESPORTS</span>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={() => setIsAboutModalOpen(true)} title="About App" className="w-9 h-9 bg-[#161d2b] border border-cyan-500/40 text-cyan-400 rounded-lg flex items-center justify-center cursor-pointer hover:bg-cyan-950/50">â„¹ï¸</button>
-          <button onClick={() => setIsSupportModalOpen(true)} title="Support" className="w-9 h-9 bg-[#161d2b] border border-yellow-500/40 text-yellow-400 rounded-lg flex items-center justify-center cursor-pointer hover:bg-yellow-950/50">ðŸŽ§</button>
+          <button onClick={() => setIsAboutModalOpen(true)} title="About App" className="w-9 h-9 bg-[#161d2b] border border-cyan-500/40 text-cyan-400 rounded-lg flex items-center justify-center cursor-pointer hover:bg-cyan-950/50">ℹ️</button>
+          <button onClick={() => setIsSupportModalOpen(true)} title="Support" className="w-9 h-9 bg-[#161d2b] border border-yellow-500/40 text-yellow-400 rounded-lg flex items-center justify-center cursor-pointer hover:bg-yellow-950/50">🎧</button>
           <button onClick={() => setIsLevelModalOpen(true)} title="Level & Badges" className="px-3 h-9 bg-gradient-to-r from-yellow-950 to-black border border-yellow-500/60 text-yellow-400 rounded-lg flex items-center gap-1.5 text-xs font-bold cursor-pointer hover:border-yellow-400">
-            <span>ðŸ›¡ï¸ Lvl {playerLevel}</span>
+            <span>🛡️ Lvl {playerLevel}</span>
             <span className="text-[10px] bg-cyan-950 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-800">Prot: {protectionPoints}</span>
           </button>
           <div className="text-right hidden sm:block ml-2">
@@ -533,7 +522,7 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* â”€â”€ Main Grid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 relative z-10 items-stretch mb-6">
 
         {/* Left: Player Profile */}
@@ -543,7 +532,7 @@ export default function DashboardPage() {
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-sm font-mono uppercase tracking-widest font-bold text-gray-400">// PLAYER PROFILE</h2>
               <button onClick={() => setIsEditingProfile(!isEditingProfile)} className="text-[10px] text-cyan-400 uppercase font-bold cursor-pointer bg-cyan-950/60 px-2 py-1 border border-cyan-800">
-                {isEditingProfile ? "Save All âœ“" : "Edit Profiles âœŽ"}
+                {isEditingProfile ? "Save All ✓" : "Edit Profiles ✍️"}
               </button>
             </div>
 
@@ -562,7 +551,7 @@ export default function DashboardPage() {
 
               {/* BGMI Profile */}
               <div className="bg-black/40 p-3 rounded border border-gray-900 space-y-2">
-                <span className="text-[11px] font-bold text-cyan-400">ðŸ›¡ï¸ BGMI PROFILE</span>
+                <span className="text-[11px] font-bold text-cyan-400">🛡️ BGMI PROFILE</span>
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-gray-400">IGN:</span>
                   {isEditingProfile ? <input type="text" value={tempBgmiIgn} onChange={(e) => setTempBgmiIgn(e.target.value)} className="bg-black border border-cyan-600 px-2 py-0.5 text-xs text-white w-28" /> : <span className="font-bold text-white">{bgmiIgn}</span>}
@@ -575,7 +564,7 @@ export default function DashboardPage() {
 
               {/* Free Fire Profile */}
               <div className="bg-black/40 p-3 rounded border border-gray-900 space-y-2">
-                <span className="text-[11px] font-bold text-orange-400">ðŸ”¥ FREE FIRE PROFILE</span>
+                <span className="text-[11px] font-bold text-orange-400">🔥 FREE FIRE PROFILE</span>
                 <div className="flex justify-between items-center text-xs">
                   <span className="text-gray-400">IGN:</span>
                   {isEditingProfile ? <input type="text" value={tempFfIgn} onChange={(e) => setTempFfIgn(e.target.value)} className="bg-black border border-orange-600 px-2 py-0.5 text-xs text-white w-28" /> : <span className="font-bold text-white">{ffIgn}</span>}
@@ -589,7 +578,7 @@ export default function DashboardPage() {
               {/* Unlocked Badges */}
               <div className="bg-gradient-to-r from-yellow-950/20 via-black to-yellow-950/20 p-3 rounded border border-yellow-800/40 space-y-2">
                 <div className="flex justify-between items-center">
-                  <span className="text-[11px] font-bold text-yellow-400 uppercase tracking-wider">ðŸ† UNLOCKED BADGES</span>
+                  <span className="text-[11px] font-bold text-yellow-400 uppercase tracking-wider">🏆 UNLOCKED BADGES</span>
                   <span className="text-[10px] text-gray-400 font-mono">{getUnlockedBadges().length} / {levelBadgesMap.length} Earned</span>
                 </div>
                 <div className="flex flex-wrap gap-2 pt-1">
@@ -619,7 +608,7 @@ export default function DashboardPage() {
                     if (isEditingBio) setBio(tempBio);
                     setIsEditingBio(!isEditingBio);
                   }} className="text-[10px] text-cyan-400 font-bold cursor-pointer">
-                    {isEditingBio ? "Save Bio âœ“" : "Edit Bio"}
+                    {isEditingBio ? "Save Bio ✓" : "Edit Bio"}
                   </button>
                 </div>
                 {isEditingBio ? (
@@ -648,26 +637,18 @@ export default function DashboardPage() {
                   <div className="bg-gradient-to-r from-yellow-500 to-amber-500 h-full transition-all duration-300" style={{ width: `${playerLevel >= MAX_LEVEL ? 100 : Math.min((matchesTowardNext / matchesNeededForNext) * 100, 100)}%` }} />
                 </div>
                 <div className="flex justify-between items-center pt-1 text-[11px]">
-                  <span className="text-cyan-400">ðŸ›¡ï¸ Protection Points:</span>
+                  <span className="text-cyan-400">🛡️ Protection Points:</span>
                   <span className="font-bold text-yellow-400">{protectionPoints} Points</span>
                 </div>
-                {/* XP / 2D Info Buttons */}
                 <div className="flex gap-2 pt-2">
-                  <button
-                    onClick={handleXpInfoClick}
-                    className="flex-1 py-1.5 bg-cyan-950 text-cyan-300 border border-cyan-800 text-[10px] uppercase font-bold cursor-pointer hover:bg-cyan-900 transition-all"
-                  >
-                    â„¹ï¸ How XP Works
+                  <button onClick={handleXpInfoClick} className="flex-1 py-1.5 bg-cyan-950 text-cyan-300 border border-cyan-800 text-[10px] uppercase font-bold cursor-pointer hover:bg-cyan-950/80 transition-all">
+                    ℹ️ How XP Works
                   </button>
-                  <button
-                    onClick={handleInactivityInfoClick}
-                    className="flex-1 py-1.5 bg-rose-950 text-rose-300 border border-rose-800 text-[10px] uppercase font-bold cursor-pointer hover:bg-rose-900 transition-all"
-                  >
-                    ðŸ›¡ï¸ Protection Info
+                  <button onClick={handleInactivityInfoClick} className="flex-1 py-1.5 bg-rose-950 text-rose-300 border border-rose-800 text-[10px] uppercase font-bold cursor-pointer hover:bg-rose-950/80 transition-all">
+                    🛡️ Protection Info
                   </button>
                 </div>
 
-                {/* Inline Info Messages (Realtime) */}
                 {xpModalMessage && (
                   <div className="text-[10px] text-cyan-300 bg-cyan-950/40 p-2 border border-cyan-800/60 mt-2 italic rounded">
                     {xpModalMessage}
@@ -682,13 +663,13 @@ export default function DashboardPage() {
 
               {/* Crown Reward Table Preview */}
               <div className="bg-black/40 p-3 rounded border border-yellow-900/50 space-y-2">
-                <span className="text-[11px] font-bold text-yellow-400 uppercase">ðŸ‘‘ Crown Reward Table</span>
+                <span className="text-[11px] font-bold text-yellow-400 uppercase">👑 Crown Reward Table</span>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px] font-mono max-h-28 overflow-y-auto pr-1">
                   {CROWN_REWARD_TABLE.map((r) => (
                     <div key={r.level} className={`flex justify-between items-center px-2 py-0.5 rounded ${playerLevel >= r.level ? "bg-yellow-950/40 text-yellow-300" : "text-gray-500"}`}>
                       <span>Lv {r.level}:</span>
                       <span className={`font-bold ${r.bumper ? "text-orange-400" : ""}`}>
-                        +{r.crowns} ðŸ‘‘{r.bumper ? " ðŸŽ‰" : ""}
+                        +{r.crowns} 👑{r.bumper ? " 🎉" : ""}
                       </span>
                     </div>
                   ))}
@@ -713,23 +694,23 @@ export default function DashboardPage() {
             />
          </div>
           <p className="text-[11px] text-yellow-400 font-mono italic bg-yellow-950/40 p-1.5 border border-yellow-800/60 text-center">
-            ðŸ’¡ Redeem 20 Crowns for a complimentary â‚¹10 match ticket!
+            💡 Redeem 20 Crowns for a complimentary ₹10 match ticket!
           </p>
           <p className="text-[11px] text-cyan-300 font-mono italic bg-cyan-950/40 p-1.5 border border-cyan-800/60 text-center">
-            â­ Earn 1 crown for every tournament match entry completed!
+            ⭐ Earn 1 crown for every tournament match entry completed!
           </p>
           {redeemMessage && <p className="text-[11px] text-cyan-300 text-center font-bold italic">{redeemMessage}</p>}
         </div>
       </div>
 
-      {/* â”€â”€ Active Tournaments â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* Active Tournaments */}
       <div className="bg-[#0f141c]/95 border border-gray-800 p-6 relative shadow-xl mb-6 relative z-10">
         <div className="absolute top-0 left-0 w-1.5 h-16 bg-red-600" />
         <div className="flex justify-between items-center mb-6 border-b border-gray-800 pb-4">
           <h2 className="text-sm font-mono uppercase tracking-widest font-bold text-gray-400">// ACTIVE TOURNAMENTS</h2>
           <div className="flex bg-black/80 p-1 border border-gray-800 rounded">
-            <button onClick={() => { setSelectedGameTab("bgmi"); setCurrentPage(1); }} className={`px-4 py-1.5 text-xs font-mono uppercase font-bold cursor-pointer ${selectedGameTab === "bgmi" ? "bg-cyan-400 text-black" : "text-gray-400"}`}>ðŸ›¡ï¸ BGMI</button>
-            <button onClick={() => { setSelectedGameTab("ff"); setCurrentPage(1); }} className={`px-4 py-1.5 text-xs font-mono uppercase font-bold cursor-pointer ${selectedGameTab === "ff" ? "bg-orange-500 text-black" : "text-gray-400"}`}>ðŸ”¥ Free Fire</button>
+            <button onClick={() => { setSelectedGameTab("bgmi"); setCurrentPage(1); }} className={`px-4 py-1.5 text-xs font-mono uppercase font-bold cursor-pointer ${selectedGameTab === "bgmi" ? "bg-cyan-400 text-black" : "text-gray-400"}`}>🛡️ BGMI</button>
+            <button onClick={() => { setSelectedGameTab("ff"); setCurrentPage(1); }} className={`px-4 py-1.5 text-xs font-mono uppercase font-bold cursor-pointer ${selectedGameTab === "ff" ? "bg-orange-500 text-black" : "text-gray-400"}`}>🔥 Free Fire</button>
           </div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -738,13 +719,13 @@ export default function DashboardPage() {
           ))}
         </div>
         <div className="flex justify-between items-center mt-6 pt-4 border-t border-gray-800">
-          <button onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))} disabled={currentPage === 1} className="px-4 py-2 bg-black border border-gray-700 text-xs font-bold disabled:opacity-40 cursor-pointer">â—€ Prev</button>
+          <button onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))} disabled={currentPage === 1} className="px-4 py-2 bg-black border border-gray-700 text-xs font-bold disabled:opacity-40 cursor-pointer">◀ Prev</button>
           <span className="text-xs text-gray-400 font-mono">Page {currentPage} of {totalPages || 1}</span>
-          <button onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))} disabled={currentPage === totalPages || totalPages === 0} className="px-4 py-2 bg-black border border-gray-700 text-xs font-bold disabled:opacity-40 cursor-pointer">Next â–¶</button>
+          <button onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))} disabled={currentPage === totalPages || totalPages === 0} className="px-4 py-2 bg-black border border-gray-700 text-xs font-bold disabled:opacity-40 cursor-pointer">Next ▶</button>
         </div>
       </div>
 
-      {/* â”€â”€ Recent Match History â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* Recent Match History */}
       <div className="bg-[#0f141c]/95 border border-gray-800 p-6 relative shadow-xl space-y-4 rounded-xl relative z-10">
         <h2 className="text-sm font-mono uppercase tracking-widest font-bold text-gray-400 mb-3">// RECENT MATCH HISTORY (LATEST 5)</h2>
         {shareMessage && <p className="text-[10px] text-cyan-300 mb-2 italic">{shareMessage}</p>}
@@ -773,14 +754,14 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-2">
                     {match.screenshotUrl ? (
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-green-400 font-bold">âœ… Proof Submitted:</span>
+                        <span className="text-[10px] text-green-400 font-bold">✅ Proof Submitted:</span>
                         <img src={match.screenshotUrl} alt="Match Proof" className="w-16 h-10 object-cover rounded border border-cyan-500/30" />
                       </div>
                     ) : (
                       <>
                         <input type="file" accept="image/*" id={`file-${match.id}`} onChange={(e) => setMatchScreenshot(e.target.files[0])} className="hidden" />
                         <label htmlFor={`file-${match.id}`} className="bg-zinc-800 hover:bg-zinc-700 text-cyan-400 border border-cyan-500/30 font-bold text-[10px] px-2.5 py-1 rounded cursor-pointer transition-all">
-                          {matchScreenshot ? "File Selected âœ“" : "Choose Screenshot"}
+                          {matchScreenshot ? "File Selected ✓" : "Choose Screenshot"}
                         </label>
                         <span className="text-[10px] text-gray-400 italic">*Upload your victory screenshot as proof</span>
                       </>
@@ -796,7 +777,7 @@ export default function DashboardPage() {
                 <div className="flex justify-between items-center pt-2 border-t border-gray-800/60 mt-2">
                   <span className="text-[10px] text-green-400 font-bold">Status: Joined Successfully</span>
                   <button onClick={() => handleShareMatch(match)} className="px-2.5 py-1 bg-[#161d2b] hover:bg-cyan-950 text-cyan-400 border border-cyan-800 text-[10px] uppercase font-bold cursor-pointer flex items-center gap-1 transition">
-                    ðŸ”— Share Match
+                    🔗 Share Match
                   </button>
                 </div>
               </div>
@@ -805,7 +786,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â• MODALS â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+      {/* Modals */}
 
       {/* Level & Badges Modal */}
       {isLevelModalOpen && (
@@ -813,11 +794,11 @@ export default function DashboardPage() {
           <div className="bg-[#0f141c] border border-yellow-500 p-6 max-w-md w-full space-y-4">
             <div className="flex justify-between items-center border-b border-gray-800 pb-2">
               <h3 className="text-sm font-bold text-yellow-400 uppercase">// LEVEL & BADGES PROGRESSION</h3>
-              <button onClick={() => setIsLevelModalOpen(false)} className="text-gray-400 hover:text-white text-xs cursor-pointer">âœ•</button>
+              <button onClick={() => setIsLevelModalOpen(false)} className="text-gray-400 hover:text-white text-xs cursor-pointer">✕</button>
             </div>
             <div className="bg-yellow-950/30 p-2.5 border border-yellow-800/50 text-xs flex justify-between items-center">
               <span>Current Level: <strong className="text-cyan-300">Lvl {playerLevel}</strong></span>
-              <span className="text-yellow-400 font-bold">Protection Points: {protectionPoints} ðŸ›¡ï¸</span>
+              <span className="text-yellow-400 font-bold">Protection Points: {protectionPoints} 🛡️</span>
             </div>
             <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
               {levelBadgesMap.map((tier) => {
@@ -832,13 +813,13 @@ export default function DashboardPage() {
                       </div>
                       <div className="text-right space-y-1">
                         {playerLevel >= tier.level ? (
-                          <span className="text-[10px] bg-green-950 text-green-400 border border-green-800 px-2 py-0.5 font-bold block">UNLOCKED âœ“</span>
+                          <span className="text-[10px] bg-green-950 text-green-400 border border-green-800 px-2 py-0.5 font-bold block">UNLOCKED ✓</span>
                         ) : (
                           <span className="text-[10px] text-gray-500 font-mono block">LOCKED</span>
                         )}
                         {crownReward > 0 && (
                           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded block ${isBumper ? "bg-orange-950 text-orange-400 border border-orange-800" : "bg-yellow-950 text-yellow-400 border border-yellow-800"}`}>
-                            +{crownReward} ðŸ‘‘{isBumper ? " BUMPER" : ""}
+                            +{crownReward} 👑{isBumper ? " BUMPER" : ""}
                           </span>
                         )}
                       </div>
@@ -853,13 +834,14 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
       {/* Step 1: Rules */}
       {isRulesModalOpen && activeMatch && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#0f141c] border border-cyan-500 p-6 max-w-md w-full space-y-4 shadow-2xl">
             <h3 className="text-sm font-bold text-cyan-400 uppercase tracking-wide">// RULES & REGULATIONS: {activeMatch.title}</h3>
             <div className="bg-black/60 p-3.5 border border-gray-800 text-xs space-y-2 text-gray-300 leading-relaxed">
-              <p className="font-bold text-yellow-400">âš ï¸ Mandatory Tournament Guidelines:</p>
+              <p className="font-bold text-yellow-400">⚠️ Mandatory Tournament Guidelines:</p>
               <p>1. Room ID and Password will be shared 15 minutes before the match start time.</p>
               <p>2. Teaming, emulator usage (in mobile lobbies), or hacks will result in an instant ban.</p>
               <p>3. Players must check-in with their correct IGN and UID.</p>
@@ -873,7 +855,7 @@ export default function DashboardPage() {
               <button onClick={() => {
                 if (!hasAgreedRules) { alert("You must agree to the rules to proceed."); return; }
                 setIsRulesModalOpen(false); setIsDetailsModalOpen(true);
-              }} className="px-5 py-2 bg-cyan-400 text-black font-black text-xs uppercase cursor-pointer hover:bg-cyan-300">Proceed âž”</button>
+              }} className="px-5 py-2 bg-cyan-400 text-black font-black text-xs uppercase cursor-pointer hover:bg-cyan-300">Proceed ➤</button>
             </div>
           </div>
         </div>
@@ -885,7 +867,7 @@ export default function DashboardPage() {
           <div className="bg-[#0f141c] border border-cyan-500 p-6 max-w-lg w-full space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-gray-800 pb-2">
               <h3 className="text-sm font-bold text-cyan-400 uppercase tracking-wide">// TOURNAMENT DETAILS & PRIZE POOL</h3>
-              <button onClick={() => setIsDetailsModalOpen(false)} className="text-gray-400 hover:text-white text-xs cursor-pointer">âœ•</button>
+              <button onClick={() => setIsDetailsModalOpen(false)} className="text-gray-400 hover:text-white text-xs cursor-pointer">✕</button>
             </div>
             <div className="bg-black/60 p-4 border border-gray-800 space-y-3 text-xs">
               <div className="flex justify-between border-b border-gray-800/60 pb-2">
@@ -902,20 +884,20 @@ export default function DashboardPage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-400">Entry Fee:</span>
-                <span className="font-bold text-green-400">â‚¹{activeMatch.entryFee}</span>
+                <span className="font-bold text-green-400">₹{activeMatch.entryFee}</span>
               </div>
             </div>
             <div className="bg-cyan-950/30 p-3.5 border border-cyan-800/60 rounded space-y-2">
-              <h4 className="text-yellow-400 font-bold uppercase text-xs text-center">ðŸ† PRIZE POOL DISTRIBUTION (%) ðŸ†</h4>
+              <h4 className="text-yellow-400 font-bold uppercase text-xs text-center">🏆 PRIZE POOL DISTRIBUTION (%) 🏆</h4>
               <div className="space-y-1 text-xs font-mono">
-                <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-yellow-400 font-bold">ðŸ¥‡ 1st Place:</span><span className="text-cyan-300">24% of pool</span></div>
-                <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-gray-300 font-bold">ðŸ¥ˆ 2nd Place:</span><span className="text-cyan-300">14% of pool</span></div>
-                <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-red-400 font-bold">ðŸª“ Per Kill Bounty:</span><span className="text-cyan-300">1% per kill</span></div>
+                <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-yellow-400 font-bold">🥇 1st Place:</span><span className="text-cyan-300">24% of pool</span></div>
+                <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-gray-300 font-bold">🥈 2nd Place:</span><span className="text-cyan-300">14% of pool</span></div>
+                <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-red-400 font-bold">ª“ Per Kill Bounty:</span><span className="text-cyan-300">1% per kill</span></div>
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setIsDetailsModalOpen(false)} className="px-4 py-2 bg-gray-800 text-xs uppercase cursor-pointer">Cancel</button>
-              <button onClick={() => { setIsDetailsModalOpen(false); setIsDetailsFormModalOpen(true); }} className="px-5 py-2 bg-cyan-400 text-black font-black text-xs uppercase cursor-pointer hover:bg-cyan-300">Join Now âž”</button>
+              <button onClick={() => { setIsDetailsModalOpen(false); setIsDetailsFormModalOpen(true); }} className="px-5 py-2 bg-cyan-400 text-black font-black text-xs uppercase cursor-pointer hover:bg-cyan-300">Join Now ➤</button>
             </div>
           </div>
         </div>
@@ -944,7 +926,7 @@ export default function DashboardPage() {
               <button onClick={() => {
                 if (!playerWhatsapp || !playerEmailInput || !playerIgnInput || !playerUidInput) { alert("Please fill in all required details."); return; }
                 setIsDetailsFormModalOpen(false); setIsConfirmModalOpen(true);
-              }} className="px-5 py-2 bg-cyan-400 text-black font-black text-xs uppercase cursor-pointer hover:bg-cyan-300">Confirm Details âž”</button>
+              }} className="px-5 py-2 bg-cyan-400 text-black font-black text-xs uppercase cursor-pointer hover:bg-cyan-300">Confirm Details ➤</button>
             </div>
           </div>
         </div>
@@ -957,7 +939,7 @@ export default function DashboardPage() {
             <h3 className="text-sm font-bold text-green-400 uppercase tracking-wide">// FINAL CONFIRMATION</h3>
             <div className="bg-green-950/30 p-3.5 border border-green-800/50 text-xs text-gray-300 space-y-2 text-left">
               <p>Tournament: <strong className="text-white">{activeMatch.title}</strong></p>
-              <p>Entry Fee: <strong className="text-green-400">â‚¹{activeMatch.entryFee}</strong></p>
+              <p>Entry Fee: <strong className="text-green-400">₹{activeMatch.entryFee}</strong></p>
               <p>IGN & UID: <strong className="text-yellow-400">{playerIgnInput} ({playerUidInput})</strong></p>
             </div>
             <div className="flex justify-between items-center gap-3 pt-3 border-t border-gray-800">
@@ -992,16 +974,13 @@ export default function DashboardPage() {
                       if (data.crowns !== undefined) setCrowns(data.crowns);
                       else setCrowns((p) => p + 1);
 
-                      // Level is no longer trusted directly from the backend â€”
-                      // updating matchesPlayed here is enough; the useEffect
-                      // above recalculates playerLevel automatically.
                       if (data.matchesPlayed !== undefined) {
                         setMatchesPlayed(data.matchesPlayed);
                       } else {
                         setMatchesPlayed((p) => p + 1);
                       }
 
-                      addMatchHistoryRecord(activeMatch.title, activeMatch.map, selectedGameTab === "bgmi" ? "BGMI" : "FREE FIRE", `â‚¹${activeMatch.entryFee}`);
+                      addMatchHistoryRecord(activeMatch.title, activeMatch.map, selectedGameTab === "bgmi" ? "BGMI" : "FREE FIRE", `₹${activeMatch.entryFee}`);
                       alert(`Successfully joined ${activeMatch.title}!`);
                       setIsConfirmModalOpen(false);
                     } else {
@@ -1015,7 +994,7 @@ export default function DashboardPage() {
                 }}
                 className="px-5 py-2 bg-green-500 text-black font-black text-xs uppercase cursor-pointer hover:bg-green-400 disabled:opacity-60"
               >
-                {isSubmitting ? "PROCESSING..." : "CONFIRM & PROCEED âž”"}
+                {isSubmitting ? "PROCESSING..." : "CONFIRM & PROCEED ➤"}
               </button>
             </div>
           </div>
@@ -1038,12 +1017,12 @@ export default function DashboardPage() {
               <span className="text-cyan-400 font-bold select-all">9034388712@fam</span>
             </div>
             <div className="space-y-1 text-left">
-              <label className="text-[10px] text-gray-400 uppercase">Enter Amount (â‚¹)</label>
+              <label className="text-[10px] text-gray-400 uppercase">Enter Amount (₹)</label>
               <input type="number" value={addAmount} onChange={(e) => setAddAmount(Number(e.target.value))} className="w-full bg-black border border-gray-700 p-2 text-sm text-white" />
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setIsUpiModalOpen(false)} className="px-4 py-2 bg-gray-800 text-xs uppercase cursor-pointer">Cancel</button>
-              <button onClick={() => { setDepositWallet((p) => p + addAmount); setIsUpiModalOpen(false); alert(`â‚¹${addAmount} added successfully!`); }} className="px-4 py-2 bg-green-600 text-black font-bold text-xs uppercase cursor-pointer">I Have Paid âœ“</button>
+              <button onClick={() => { setDepositWallet((p) => p + addAmount); setIsUpiModalOpen(false); alert(`₹${addAmount} added successfully!`); }} className="px-4 py-2 bg-green-600 text-black font-bold text-xs uppercase cursor-pointer">I Have Paid ✓</button>
             </div>
           </div>
         </div>
@@ -1054,10 +1033,10 @@ export default function DashboardPage() {
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#0f141c] border border-yellow-500 p-6 max-w-sm w-full space-y-4">
             <h3 className="text-sm font-bold text-yellow-400 uppercase">// WITHDRAW WINNINGS</h3>
-            <p className="text-xs text-gray-300">Winnings: <span className="text-yellow-400 font-bold">â‚¹{winningsWallet}</span></p>
+            <p className="text-xs text-gray-300">Winnings: <span className="text-yellow-400 font-bold">₹{winningsWallet}</span></p>
             <div className="space-y-2">
-              <label className="text-[10px] text-gray-400 uppercase">Amount (â‚¹)</label>
-              <input type="number" placeholder="Min â‚¹101" value={withdrawAmount} onChange={(e) => setWithdrawAmount(e.target.value)} className="w-full bg-black border border-gray-700 p-2 text-xs text-white" />
+              <label className="text-[10px] text-gray-400 uppercase">Amount (₹)</label>
+              <input type="number" placeholder="Min ₹101" value={withdrawAmount} onChange={(e) => setWithdrawAmount(e.target.value)} className="w-full bg-black border border-gray-700 p-2 text-xs text-white" />
             </div>
             <div className="space-y-2">
               <label className="text-[10px] text-gray-400 uppercase">Your UPI ID</label>
@@ -1068,7 +1047,7 @@ export default function DashboardPage() {
               <button onClick={() => setIsWithdrawModalOpen(false)} className="px-4 py-2 bg-gray-800 text-xs uppercase cursor-pointer">Close</button>
               <button onClick={() => {
                 const amt = Number(withdrawAmount);
-                if (winningsWallet < 101 || amt < 101) { setWithdrawMessage("Minimum withdrawal amount is â‚¹101."); return; }
+                if (winningsWallet < 101 || amt < 101) { setWithdrawMessage("Minimum withdrawal amount is ₹101."); return; }
                 if (amt > winningsWallet) { setWithdrawMessage("Amount exceeds your available winnings balance."); return; }
                 if (!withdrawUpiId.includes("@")) { setWithdrawMessage("Please enter a valid UPI ID."); return; }
                 setWinningsWallet((p) => p - amt);
@@ -1086,16 +1065,16 @@ export default function DashboardPage() {
           <div className="bg-[#0f141c] border border-cyan-500 p-6 max-w-lg w-full space-y-4 max-h-[85vh] overflow-y-auto rounded-xl shadow-2xl">
             <div className="flex justify-between items-center border-b border-gray-800 pb-2">
               <h3 className="text-sm font-bold text-cyan-400 uppercase">// ABOUT BATTLE CROWN</h3>
-              <button onClick={() => setIsAboutModalOpen(false)} className="text-gray-400 hover:text-white text-xs cursor-pointer">âœ•</button>
+              <button onClick={() => setIsAboutModalOpen(false)} className="text-gray-400 hover:text-white text-xs cursor-pointer">✕</button>
             </div>
             <div className="space-y-3 text-xs text-gray-300 leading-relaxed">
               <p><strong>Battle Crown</strong> is a competitive online gaming tournament platform for skill-based custom room matches in BGMI and Free Fire.</p>
               <div className="border-t border-gray-800 pt-3">
                 <span className="text-yellow-400 font-bold uppercase block mb-1">Prize Distribution:</span>
                 <ul className="list-disc pl-4 space-y-1 text-gray-400">
-                  <li>ðŸ¥‡ 1st Place: 20% of total entry fees</li>
-                  <li>ðŸ¥ˆ 2nd Place: 10% of total entry fees</li>
-                  <li>ðŸª“ Per Kill Bounty: 1% per kill from total fees</li>
+                  <li>🥇 1st Place: 20% of total entry fees</li>
+                  <li>🥈 2nd Place: 10% of total entry fees</li>
+                  <li>ª“ Per Kill Bounty: 1% per kill from total fees</li>
                 </ul>
               </div>
             </div>
@@ -1115,12 +1094,12 @@ export default function DashboardPage() {
                 <Headphones className="w-5 h-5 animate-pulse" />
                 <h3 className="text-sm font-bold uppercase tracking-wider">// CUSTOMER SUPPORT</h3>
               </div>
-              <button onClick={() => setIsSupportModalOpen(false)} className="text-gray-400 hover:text-white text-xs cursor-pointer">âœ•</button>
+              <button onClick={() => setIsSupportModalOpen(false)} className="text-gray-400 hover:text-white text-xs cursor-pointer">✕</button>
             </div>
             <div className="bg-black/50 p-3.5 border border-gray-800/80 rounded-lg space-y-2 text-xs font-mono">
-              <p className="text-gray-300">ðŸ’¬ <strong>WhatsApp Support:</strong> +91 9034388712</p>
-              <p className="text-gray-300">âœ‰ï¸ <strong>Official Email:</strong> support@battlecrown.in</p>
-              <p className="text-gray-300">ðŸ“¸ <strong>Instagram:</strong> @battle_crown_official_</p>
+              <p className="text-gray-300">💬 <strong>WhatsApp Support:</strong> +91 9034388712</p>
+              <p className="text-gray-300">✉️ <strong>Official Email:</strong> support@battlecrown.in</p>
+              <p className="text-gray-300">📸 <strong>Instagram:</strong> @battle_crown_official_</p>
             </div>
             <div className="space-y-1.5">
               <label className="text-[10px] text-gray-400 uppercase tracking-wider block">Send Message to Admin</label>
