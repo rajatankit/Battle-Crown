@@ -1,0 +1,107 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  Int                  @id @default(autoincrement())
+  uid                 String?              @unique
+  email               String               @unique
+  name                String?
+  depositWallet       Float                @default(0)
+  winningsWallet      Float                @default(0)
+  crowns              Int                  @default(0)
+  matchesPlayed       Int                  @default(0)
+  level               Int                  @default(1)
+  protectionPoints    Int                  @default(5)
+  claimedLevelRewards Int[]                @default([])
+  upiId               String?
+  lastMatchAt         DateTime?
+  createdAt           DateTime             @default(now())
+  matchHistories      MatchHistory[]
+  withdrawalRequests  WithdrawalRequest[]
+
+  @@map("User")
+}
+
+model MatchHistory {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tournamentId    String?
+  tournamentName  String
+  screenshotUrl   String?
+  mapName         String?
+  mode            String?
+  gameType        String?
+  entryFee        String?
+  maxSlots        Int      @default(100)
+  playerLevel     Int      @default(1)
+  ign             String?
+  uid             String?
+  whatsapp_number String?
+  email           String?
+  kills           Int      @default(0)
+  prizeWon        Float    @default(0)
+  status          String   @default("Joined Successfully")
+  createdAt       DateTime @default(now())
+
+  @@map("match_history")
+}
+
+model Tournament {
+  id          Int      @id @default(autoincrement())
+  title       String
+  game        String
+  map         String?
+  mode        String?
+  entryFee    String?
+  maxSlots    Int      @default(100)
+  joinedCount Int      @default(0)
+  status      String   @default("upcoming")
+  createdAt   DateTime @default(now())
+
+  @@map("tournaments")
+}
+
+model Player {
+  id             Int      @id @default(autoincrement())
+  email          String
+  whatsappNumber String?
+  ign            String
+  uid            String
+  gameType       String?
+  mapName        String?
+  entryFee       Float    @default(0)
+  playerLevel    Int      @default(1)
+  kills          Int      @default(0)
+  prizeWon       Float    @default(0)
+  screenshotUrl  String?
+  status         String   @default("pending")
+  mode           String?
+  maxSlots       Int      @default(100)
+  createdAt      DateTime @default(now())
+
+  @@map("players")
+}
+
+// Withdrawal requests raised by users from their winnings wallet.
+// Flow: user requests -> amount deducted immediately (locked) -> admin
+// manually sends money via UPI -> admin marks Approved.
+// If admin Rejects, amount is refunded back to winningsWallet.
+model WithdrawalRequest {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount    Float
+  upiId     String
+  status    String   @default("Pending") // Pending, Approved, Rejected
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("withdrawal_requests")
+}

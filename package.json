@@ -9,6 +9,11 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@cashfreepayments/cashfree-js": "^1.0.7",
+    "@prisma/client": "^6.19.3",
+    "cashfree-pg": "^6.0.4",
+    "firebase": "^12.16.0",
+    "lucide-react": "^1.28.0",
     "next": "16.2.12",
     "react": "19.2.4",
     "react-dom": "19.2.4"
@@ -17,6 +22,7 @@
     "@tailwindcss/postcss": "^4",
     "eslint": "^9",
     "eslint-config-next": "16.2.12",
+    "prisma": "^6.19.3",
     "tailwindcss": "^4"
   }
 }
