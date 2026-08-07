@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-import { writeFile } from "fs/promises";
-import path from "path";
+import { prisma } from "../../../../lib/prisma";
+import { v2 as cloudinary } from "cloudinary";
 
-const globalForPrisma = global;
-const prisma = globalForPrisma.prisma || new PrismaClient();
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 export async function POST(req) {
   try {
@@ -14,10 +15,6 @@ export async function POST(req) {
     const file = formData.get("file");
     const email = formData.get("email");
     const matchId = formData.get("matchId");
-    console.log({
-      email,
-      matchId,
-    });
 
     if (!file || !email || !matchId) {
       return NextResponse.json(
@@ -36,7 +33,6 @@ export async function POST(req) {
       return NextResponse.json({ success: false, message: "User not found in database!" }, { status: 404 });
     }
 
-    // Find the existing match record and make sure it actually belongs to this user
     const existingMatch = await prisma.matchHistory.findUnique({
       where: { id: parsedMatchId },
     });
@@ -56,19 +52,18 @@ export async function POST(req) {
       );
     }
 
+    // Upload to Cloudinary instead of local disk — Vercel's filesystem is read-only.
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
+    const base64Data = `data:${file.type};base64,${buffer.toString("base64")}`;
 
-    const filename = `${Date.now()}-${file.name.replaceAll(" ", "_")}`;
-    const uploadDir = path.join(process.cwd(), "public/uploads");
-    const filePath = path.join(uploadDir, filename);
+    const uploadResult = await cloudinary.uploader.upload(base64Data, {
+      folder: "battle-crown-screenshots",
+      resource_type: "image",
+    });
 
-    await writeFile(filePath, buffer);
-    const screenshotUrl = `/uploads/${filename}`;
+    const screenshotUrl = uploadResult.secure_url;
 
-    // UPDATE the existing record — do NOT create a new one.
-    // This preserves the ign/uid/whatsapp_number that were correctly
-    // saved when the player originally joined the tournament.
     const updatedMatch = await prisma.matchHistory.update({
       where: { id: parsedMatchId },
       data: { screenshotUrl },
