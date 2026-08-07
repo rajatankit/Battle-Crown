@@ -16,7 +16,7 @@ export async function POST(request) {
     }
 
     // 1. Pehle check karo ki kya yeh Email ya UID pehle se database mein hai
-    let existingUser = await prisma.user.findFirst({
+    const existingUser = await prisma.user.findFirst({
       where: {
         OR: [
           { uid: String(uid) },
@@ -24,14 +24,20 @@ export async function POST(request) {
         ]
       },
     }).catch(() => null);
+    
 
     if (existingUser) {
-      // Agar user pehle se hai, toh uska saved data return karo
       return NextResponse.json(
         { success: true, user: existingUser },
         { headers: { "Content-Type": "application/json" } }
       );
     }
+
+
+console.log("UID:", uid);
+console.log("EMAIL:", email);
+console.log("EXISTING USER:", existingUser);
+
 
     // 2. Agar naya user hai, toh bilkul fresh record 0 balance ke sath create karo
     const newUser = await prisma.user.create({

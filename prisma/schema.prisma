@@ -8,67 +8,117 @@ datasource db {
 }
 
 model User {
-  id                  Int                  @id @default(autoincrement())
-  uid                 String?              @unique
-  email               String               @unique
-  name                String?
-  depositWallet       Float                @default(0)
-  winningsWallet      Float                @default(0)
-  crowns              Int                  @default(0)
-  matchesPlayed       Int                  @default(0)
-  level               Int                  @default(1)
-  protectionPoints    Int                  @default(5)
-  claimedLevelRewards Int[]                @default([])
-  upiId               String?
-  lastMatchAt         DateTime?
-  createdAt           DateTime             @default(now())
-  matchHistories      MatchHistory[]
-  withdrawalRequests  WithdrawalRequest[]
+  id                    Int                 @id @default(autoincrement())
+  uid                   String?             @unique
+  email                 String              @unique
+  name                  String?
+  depositWallet         Float               @default(0)
+  winningsWallet        Float               @default(0)
+  crowns                Int                 @default(0)
+  matchesPlayed         Int                 @default(0)
+  level                 Int                 @default(1)
+  protectionPoints      Int                 @default(5)
+  claimedLevelRewards   Int[]               @default([])
+  lastMatchAt           DateTime?
+  createdAt             DateTime            @default(now())
+  upiId                 String?
+  fcmToken              String?
+  lastProtectionDecayAt DateTime?
+  bgmiIgn               String?
+  bgmiUid               String?
+  bio                   String?
+  ffIgn                 String?
+  ffUid                 String?
+  matchHistories        MatchHistory[]
+  walletTransactions    WalletTransaction[]
+  withdrawalRequests    WithdrawalRequest[]
 
   @@map("User")
 }
 
-model MatchHistory {
-  id              Int      @id @default(autoincrement())
-  userId          Int
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tournamentId    String?
-  tournamentName  String
-  screenshotUrl   String?
-  mapName         String?
-  mode            String?
-  gameType        String?
-  entryFee        String?
-  maxSlots        Int      @default(100)
-  playerLevel     Int      @default(1)
-  ign             String?
-  uid             String?
-  whatsapp_number String?
-  email           String?
-  kills           Int      @default(0)
-  prizeWon        Float    @default(0)
-  status          String   @default("Joined Successfully")
-  createdAt       DateTime @default(now())
-
-  @@map("match_history")
-}
-
 model Tournament {
-  id          Int      @id @default(autoincrement())
-  title       String
-  game        String
-  map         String?
-  mode        String?
-  entryFee    String?
-  maxSlots    Int      @default(100)
-  joinedCount Int      @default(0)
-  status      String   @default("upcoming")
-  createdAt   DateTime @default(now())
+  id           Int       @id @default(autoincrement())
+  title        String
+  game         String
+  map          String?
+  mode         String?
+  entryFee     String?
+  maxSlots     Int       @default(100)
+  joinedCount  Int       @default(0)
+  status       String    @default("upcoming")
+  createdAt    DateTime  @default(now())
+  firstPrize   Float?    @default(0)
+  secondPrize  Float?    @default(0)
+  thirdPrize   Float?    @default(0)
+  killReward   Float?    @default(5)
+  roomId       String?
+  roomPassword String?
+  startTime    DateTime? @db.Timestamp(6)
 
   @@map("tournaments")
 }
 
-model Player {
+model MatchHistory {
+  id                 Int                 @id @default(autoincrement())
+  userId             Int
+  tournamentName     String
+  screenshotUrl      String?
+  mapName            String?
+  mode               String?
+  gameType           String?
+  entryFee           String?
+  maxSlots           Int                 @default(100)
+  playerLevel        Int                 @default(1)
+  ign                String?
+  uid                String?
+  whatsapp_number    String?
+  email              String?
+  kills              Int                 @default(0)
+  prizeWon           Float               @default(0)
+  status             String              @default("Joined Successfully")
+  createdAt          DateTime            @default(now())
+  tournamentId       String?
+  player_level       Int?                @default(1)
+  screenshot_url     String?
+  rank               Int?                @default(0)
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  walletTransactions WalletTransaction[]
+
+  @@index([tournamentId], map: "idx_match_tournament")
+  @@index([userId], map: "idx_match_user")
+  @@map("match_history")
+}
+
+model WalletTransaction {
+  id          Int           @id @default(autoincrement())
+  userId      Int?
+  matchId     Int?
+  amount      Float?        @default(0)
+  type        String
+  description String?
+  createdAt   DateTime?     @default(now()) @db.Timestamp(6)
+  match       MatchHistory? @relation(fields: [matchId], references: [id], onUpdate: NoAction)
+  user        User?         @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([userId], map: "idx_wallet_user")
+  @@map("wallet_transactions")
+}
+
+model WithdrawalRequest {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  amount    Float
+  upiId     String
+  status    String   @default("Pending")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "idx_withdraw_user")
+  @@map("withdrawal_requests")
+}
+
+model players {
   id             Int      @id @default(autoincrement())
   email          String
   whatsappNumber String?
@@ -85,23 +135,38 @@ model Player {
   mode           String?
   maxSlots       Int      @default(100)
   createdAt      DateTime @default(now())
-
-  @@map("players")
+  screenshot_url String?
+  prize_won      Float?   @default(0)
+  max_slots      Int?     @default(100)
+  player_level   Int?     @default(1)
 }
 
-// Withdrawal requests raised by users from their winnings wallet.
-// Flow: user requests -> amount deducted immediately (locked) -> admin
-// manually sends money via UPI -> admin marks Approved.
-// If admin Rejects, amount is refunded back to winningsWallet.
-model WithdrawalRequest {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  amount    Float
-  upiId     String
-  status    String   @default("Pending") // Pending, Approved, Rejected
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model users {
+  id                    Int       @id @default(autoincrement())
+  uid                   String?   @unique
+  email                 String    @unique @db.VarChar(255)
+  name                  String?
+  deposit_wallet        Float?    @default(0)
+  winnings_wallet       Float?    @default(0)
+  crowns                Int?      @default(0)
+  level                 Int?      @default(1)
+  matches_played        Int?      @default(0)
+  protection_points     Int?      @default(5)
+  claimed_level_rewards Json?     @default("[]")
+  last_match_at         DateTime? @db.Timestamp(6)
+  created_at            DateTime? @default(now()) @db.Timestamp(6)
+}
 
-  @@map("withdrawal_requests")
+model Notification {
+  id        String   @id @default(cuid())
+  type      String
+  userId    String?
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  readBy    String[] @default([])
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([type])
 }

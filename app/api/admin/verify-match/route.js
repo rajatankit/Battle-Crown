@@ -1,114 +1,450 @@
 import { NextResponse } from "next/server";
-import prisma from "../../../lib/prisma";
+import { prisma } from "../../../lib/prisma";
+import { db } from "../../../lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
 
 export async function POST(req) {
   try {
-    // Admin check — example agar tum session/cookie use karte ho
+    // =========================================================
+    // ADMIN AUTH
+    // =========================================================
+
     const adminKey = req.headers.get("x-admin-key");
-    if (adminKey !== process.env.ADMIN_SECRET_KEY) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+
+    if (!adminKey || adminKey !== process.env.ADMIN_SECRET_KEY) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Unauthorized",
+        },
+        { status: 401 }
+      );
     }
 
+    // =========================================================
+    // REQUEST BODY
+    // =========================================================
+
     const body = await req.json();
-    // ... baaki code same
 
-    const { matchId, kills, totalRoomEntryFee, rank, action } = body;
+    const {
+      matchId,
+      kills,
+      rank,
+      action,
+    } = body;
 
-    // 1. Basic validation
     if (!matchId || !action) {
       return NextResponse.json(
-        { success: false, error: "Missing required fields (matchId or action)" },
+        {
+          success: false,
+          error: "Missing matchId or action",
+        },
         { status: 400 }
       );
     }
 
     const parsedMatchId = Number(matchId);
-    if (isNaN(parsedMatchId)) {
+
+    if (!Number.isInteger(parsedMatchId) || parsedMatchId <= 0) {
       return NextResponse.json(
-        { success: false, error: "Invalid matchId format" },
+        {
+          success: false,
+          error: "Invalid matchId",
+        },
         { status: 400 }
       );
     }
 
-    // 2. Match record find karo
+    // =========================================================
+    // FIND MATCH
+    // =========================================================
+
     const match = await prisma.matchHistory.findUnique({
-      where: { id: parsedMatchId },
+      where: {
+        id: parsedMatchId,
+      },
+      include: {
+        user: true,
+      },
     });
 
     if (!match) {
       return NextResponse.json(
-        { success: false, error: "Match record not found" },
+        {
+          success: false,
+          error: "Match not found",
+        },
         { status: 404 }
       );
     }
 
-    // Prevent duplicate payouts
-    if (match.status === "Approved" || match.status === "Rejected") {
+    // =========================================================
+    // PREVENT DUPLICATE PROCESSING
+    // =========================================================
+
+    if (
+      match.status === "Approved" ||
+      match.status === "Rejected"
+    ) {
       return NextResponse.json(
-        { success: false, error: `Match is already ${match.status.toLowerCase()}` },
+        {
+          success: false,
+          error: `Match already ${match.status}`,
+        },
         { status: 400 }
       );
     }
 
-    // 3. REJECT ACTION
+    // =========================================================
+    // REJECT
+    // =========================================================
+
     if (action === "REJECT") {
-      await prisma.matchHistory.update({
-        where: { id: parsedMatchId },
-        data: { status: "Rejected" },
+      const rejected = await prisma.matchHistory.updateMany({
+        where: {
+          id: parsedMatchId,
+          status: {
+            notIn: ["Approved", "Rejected"],
+          },
+        },
+        data: {
+          status: "Rejected",
+        },
       });
-      return NextResponse.json({ success: true, message: "Match proof rejected successfully." });
+
+      if (rejected.count === 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Match was already processed.",
+          },
+          { status: 400 }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: "Match rejected successfully",
+      });
     }
 
-    // 4. APPROVE ACTION (Prize Pool & Per-Kill Calculation)
-    if (action === "APPROVE") {
-      const parsedKills = parseInt(kills) || 0;
-      const roomFee = parseFloat(totalRoomEntryFee) || 0;
-      const parsedRank = parseInt(rank) || 0;
+    // =========================================================
+    // VALIDATE ACTION
+    // =========================================================
 
-      // Prize Pool Rules:
-      // 1st Prize = 20% of total room entry fee
-      // 2nd Prize = 10% of total room entry fee
-      // 3rd Prize = 5% of total room entry fee
-      let rankPercentage = 0;
-      if (parsedRank === 1) rankPercentage = 0.20;
-      else if (parsedRank === 2) rankPercentage = 0.10;
-      else if (parsedRank === 3) rankPercentage = 0.05;
+    if (action !== "APPROVE") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid action",
+        },
+        { status: 400 }
+      );
+    }
 
-      const rankPrize = roomFee * rankPercentage;
-      const killPrize = parsedKills * 5; // Fixed ₹5 per kill
-      const totalPrizeWon = rankPrize + killPrize;
+    // =========================================================
+    // GET TOURNAMENT FROM FIREBASE
+    // =========================================================
 
-      // Database Transaction (Match Update + User Wallet Increment)
-      await prisma.$transaction([
-        prisma.matchHistory.update({
-          where: { id: parsedMatchId },
-          data: {
-            status: "Approved",
-            kills: parsedKills,
-            prizeWon: totalPrizeWon,
-          },
-        }),
-        prisma.user.update({
-          where: { id: match.userId },
-          data: {
-            winningsWallet: {
-              increment: totalPrizeWon,
+    if (!match.tournamentId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Tournament ID missing from match.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const tournamentRef = doc(
+      db,
+      "tournaments",
+      String(match.tournamentId)
+    );
+
+    const tournamentSnap = await getDoc(tournamentRef);
+
+    if (!tournamentSnap.exists()) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Tournament not found in Firebase.",
+        },
+        { status: 404 }
+      );
+    }
+
+    const tournament = tournamentSnap.data();
+
+    // =========================================================
+    // GET JOINED COUNT
+    // =========================================================
+
+    const joinedCount = Number(
+      tournament.joinedCount || 0
+    );
+
+    if (joinedCount <= 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Tournament has no joined players.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // =========================================================
+    // ENTRY FEE
+    //
+    // MatchHistory stores entryFee as String
+    // =========================================================
+
+    const entryFee = Number(match.entryFee || 0);
+
+    if (!Number.isFinite(entryFee) || entryFee <= 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid entry fee.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // =========================================================
+    // TOTAL ENTRY COLLECTION
+    //
+    // Example:
+    // 50 players × ₹10 = ₹500
+    // =========================================================
+
+    const totalCollection =
+      joinedCount * entryFee;
+
+    // =========================================================
+    // PRIZE STRUCTURE
+    //
+    // 1st = 20%
+    // 2nd = 10%
+    // 3rd = 5%
+    // =========================================================
+
+    const firstPrize =
+      totalCollection * 0.20;
+
+    const secondPrize =
+      totalCollection * 0.10;
+
+    const thirdPrize =
+      totalCollection * 0.05;
+
+    // =========================================================
+    // FINAL KILLS / RANK
+    // =========================================================
+
+    const finalKills = Math.max(
+      0,
+      Number(kills) || 0
+    );
+
+    const finalRank = Math.max(
+      0,
+      Number(rank) || 0
+    );
+
+    // =========================================================
+    // RANK PRIZE
+    // =========================================================
+
+    let rankPrize = 0;
+
+    if (finalRank === 1) {
+      rankPrize = firstPrize;
+    } else if (finalRank === 2) {
+      rankPrize = secondPrize;
+    } else if (finalRank === 3) {
+      rankPrize = thirdPrize;
+    }
+
+    // =========================================================
+    // PER KILL REWARD
+    //
+    // Firebase tournament killReward
+    // Default = ₹5
+    // =========================================================
+
+    const killReward = Number(
+      tournament.killReward ?? 5
+    );
+
+    const killPrize =
+      finalKills * killReward;
+
+    // =========================================================
+    // TOTAL PRIZE
+    // =========================================================
+
+    const totalPrize =
+      rankPrize + killPrize;
+
+    // Round to 2 decimal places
+    const finalPrize =
+      Math.round(totalPrize * 100) / 100;
+
+    // =========================================================
+    // APPROVE + WALLET TRANSACTION
+    // =========================================================
+
+    const result = await prisma.$transaction(
+      async (tx) => {
+
+        // First mark match as Approved ONLY if
+        // it has not already been processed.
+        const updatedMatch =
+          await tx.matchHistory.updateMany({
+            where: {
+              id: parsedMatchId,
+              status: {
+                notIn: ["Approved", "Rejected"],
+              },
             },
-            lastMatchAt: new Date(),
-          },
-        }),
-      ]);
+            data: {
+              status: "Approved",
+              kills: finalKills,
+              rank: finalRank,
+              prizeWon: finalPrize,
+            },
+          });
 
-      return NextResponse.json({ 
-        success: true, 
-        message: `Match approved! ₹${totalPrizeWon} added to user wallet (Rank: ₹${rankPrize}, Kills: ₹${killPrize}).` 
-      });
-    }
+        // If 0 rows updated, another request already
+        // processed this match.
+        if (updatedMatch.count === 0) {
+          throw new Error(
+            "MATCH_ALREADY_PROCESSED"
+          );
+        }
 
-    return NextResponse.json({ success: false, error: "Invalid action type" }, { status: 400 });
+        // =====================================================
+        // ADD MONEY TO WINNINGS WALLET
+        //
+        // IMPORTANT:
+        // matchesPlayed is NOT incremented here.
+        //
+        // Your tournament join route already does:
+        // matchesPlayed +1
+        // =====================================================
+
+        const updatedUser =
+          await tx.user.update({
+            where: {
+              id: match.userId,
+            },
+            data: {
+              winningsWallet: {
+                increment: finalPrize,
+              },
+
+              lastMatchAt: new Date(),
+            },
+          });
+
+        // =====================================================
+        // CREATE WALLET TRANSACTION
+        // =====================================================
+
+        const walletTransaction =
+          await tx.walletTransaction.create({
+            data: {
+              userId: match.userId,
+              amount: finalPrize,
+              type: "MATCH_WIN",
+              description:
+                `Tournament reward - ${match.tournamentName}`,
+              matchId: match.id,
+            },
+          });
+
+        return {
+          updatedUser,
+          walletTransaction,
+        };
+      }
+    );
+
+    // =========================================================
+    // SUCCESS RESPONSE
+    // =========================================================
+
+    return NextResponse.json({
+      success: true,
+
+      message:
+        `Approved! ₹${finalPrize} added to winnings wallet.`,
+
+      matchId: match.id,
+
+      joinedCount,
+
+      entryFee,
+
+      totalCollection,
+
+      rank: finalRank,
+
+      kills: finalKills,
+
+      firstPrize:
+        Math.round(firstPrize * 100) / 100,
+
+      secondPrize:
+        Math.round(secondPrize * 100) / 100,
+
+      thirdPrize:
+        Math.round(thirdPrize * 100) / 100,
+
+      rankPrize:
+        Math.round(rankPrize * 100) / 100,
+
+      killReward,
+
+      killPrize:
+        Math.round(killPrize * 100) / 100,
+
+      totalPrize: finalPrize,
+
+      winningsWallet:
+        result.updatedUser.winningsWallet,
+    });
 
   } catch (error) {
-    console.error("Admin verification failed:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    console.error(
+      "VERIFY MATCH ERROR:",
+      error
+    );
+
+    if (
+      error.message ===
+      "MATCH_ALREADY_PROCESSED"
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Match was already processed.",
+        },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          error.message ||
+          "Something went wrong.",
+      },
+      { status: 500 }
+    );
   }
 }

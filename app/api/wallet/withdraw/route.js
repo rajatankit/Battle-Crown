@@ -3,6 +3,46 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+export async function GET(request) {
+  try {
+    const adminKey = request.headers.get("x-admin-key");
+
+    if (adminKey !== process.env.NEXT_PUBLIC_ADMIN_SECRET_KEY) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    const requests = await prisma.withdrawalRequest.findMany({
+      where: {
+        status: "Pending",
+      },
+      include: {
+        user: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    return NextResponse.json({
+      success: true,
+      requests,
+    });
+  } catch (err) {
+    console.error(err);
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: err.message,
+      },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(request) {
   try {
     const body = await request.json().catch(() => ({}));

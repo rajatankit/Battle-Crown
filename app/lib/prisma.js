@@ -1,11 +1,17 @@
-import { PrismaClient } from '@prisma/client';
+// lib/prisma.js
+// Singleton PrismaClient — prevents "too many connections" errors
+// caused by hot-reload in dev creating a new client on every request.
 
-const globalForPrisma = global;
+import { PrismaClient } from "@prisma/client";
 
-const prisma = globalForPrisma.prisma || new PrismaClient();
+const globalForPrisma = globalThis;
 
-if (process.env.NODE_ENV !== 'production') {
+export const prisma =
+  globalForPrisma.prisma ||
+  new PrismaClient({
+    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+  });
+
+if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
 }
-
-export default prisma;

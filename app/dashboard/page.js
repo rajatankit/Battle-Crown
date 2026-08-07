@@ -7,11 +7,13 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import GamingWallet from "../../components/GamingWallet";
 import { Headphones, Send } from "lucide-react";
 import { collection, onSnapshot, doc, updateDoc, arrayUnion, increment } from "firebase/firestore";
+import  MatchCountdown from "../../components/MatchCountdown";
+import NotificationBell from "../../components/NotificationBell";
 
 // Level/XP logic lives in one shared file, imported by both this page and
 // the /api/tournament/join route — this is what keeps the DB's level and
 // the UI's level from ever drifting apart. Don't redefine these locally.
-import { getTotalMatchesForLevel, calculateLevelFromMatches, MAX_PLAYER_LEVEL } from "../lib/levelConfig";
+import { getTotalMatchesForLevel, levelBadgesMap, MAX_PLAYER_LEVEL, calculateLevelFromMatches } from "../lib/levelConfig";
 
 const MAX_LEVEL = MAX_PLAYER_LEVEL;
 
@@ -19,7 +21,7 @@ const MAX_LEVEL = MAX_PLAYER_LEVEL;
 const CROWN_REWARD_TABLE = [
   { level: 1,  crowns: 5,   bumper: false },
   { level: 5,  crowns: 10,  bumper: false },
-  { level: 10, crowns: 15,  bumper: false },
+  { level: 10, crowns: 25,  bumper: true  },
   { level: 15, crowns: 20,  bumper: false },
   { level: 20, crowns: 50,  bumper: true  },
   { level: 25, crowns: 30,  bumper: false },
@@ -155,49 +157,135 @@ export default function DashboardPage() {
     return () => clearInterval(timer);
   }, [bgMedia.length]);
 
-  // ─── FETCH USER PROFILE ─────────────────────────────────────────────────────
-  const refreshUserProfile = async (uid, email, displayName) => {
-    try {
-      const res = await fetch(`/api/user/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uid, email, name: displayName || "Player" }),
-      });
-      const data = await res.json();
-      if (data?.user) {
-        setDepositWallet(data.user.depositWallet ?? 0);
-        setWinningsWallet(data.user.winningsWallet ?? 0);
-        setCrowns(data.user.crowns ?? 0);
-        const totalMatches = data.user.matchesPlayed ?? 0;
-        setMatchesPlayed(totalMatches);
-        const derivedLevel = calculateLevelFromMatches(totalMatches);
-        setPlayerLevel(derivedLevel);
-        prevLevelRef.current = derivedLevel;
-      }
-
-      const protRes = await fetch(`/api/user/protection-status?email=${encodeURIComponent(email)}`);
-      const protData = await protRes.json();
-      if (protData.success) setProtectionPoints(protData.protectionPoints);
-    } catch (err) {
-      console.error("Profile refresh error:", err);
-    }
-  };
-
-  // ─── Auth state change ──────────────────────────────────────────────────────
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        setFirebaseUser(user);
-        setUserEmail(user.email || "");
-        setPlayerEmailInput(user.email || "");
-        await refreshUserProfile(user.uid, user.email, user.displayName);
-        setLoading(false);
-      } else {
-        router.push("/login");
-      }
+// ─── FETCH USER PROFILE ─────────────────────────────────────────────────────
+const refreshUserProfile = async (uid, email, displayName) => {
+  try {
+    // =========================
+    // USER PROFILE
+    // =========================
+    const res = await fetch("/api/user/register", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        uid,
+        email,
+        name: displayName || "Player",
+      }),
     });
-    return () => unsubscribe();
-  }, []);
+
+    // Pehle response ko text me read karo
+    const responseText = await res.text();
+
+    console.log("REGISTER API STATUS:", res.status);
+    console.log("REGISTER API RESPONSE:", responseText);
+
+    let data;
+
+    try {
+      data = JSON.parse(responseText);
+    } catch (jsonError) {
+      throw new Error(
+        `Register API JSON nahi bhej rahi. Status: ${res.status}. Response: ${responseText.slice(
+          0,
+          200
+        )}`
+      );
+    }
+
+    if (!res.ok) {
+      throw new Error(data?.error || "Failed to load user profile");
+    }
+
+    if (data?.user) {
+      setDepositWallet(data.user.depositWallet ?? 0);
+      setWinningsWallet(data.user.winningsWallet ?? 0);
+      setCrowns(data.user.crowns ?? 0);
+
+      const totalMatches = data.user.matchesPlayed ?? 0;
+      setMatchesPlayed(totalMatches);
+
+      const derivedLevel = calculateLevelFromMatches(totalMatches);
+      setPlayerLevel(derivedLevel);
+      
+
+      setBgmiIgn(data.user.bgmiIgn || "AlphaShadow");
+      setBgmiUid(data.user.bgmiUid || "5123456789");
+      setFfIgn(data.user.ffIgn || "FireStorm99");
+      setFfUid(data.user.ffUid || "9876543210");
+      setBio(data.user.bio || "Ready for the battle! Multi-Game Competitive Esports Player.");
+      setTempBgmiIgn(data.user.bgmiIgn || "AlphaShadow");
+      setTempBgmiUid(data.user.bgmiUid || "5123456789");
+      setTempFfIgn(data.user.ffIgn || "FireStorm99");
+      setTempFfUid(data.user.ffUid || "9876543210");
+      setTempBio(data.user.bio || "Ready for the battle! Multi-Game Competitive Esports Player.");
+
+      // Fetch match history
+    try {
+      const mhRes = await fetch(`/api/user/match-history?email=${encodeURIComponent(email)}`);
+      const mhData = await mhRes.json();
+      if (mhData.success) setMatchHistory(mhData.matches);
+    } catch (mhErr) {
+      console.error("Match history fetch error:", mhErr);
+    }
+    }
+
+    // =========================
+    // PROTECTION STATUS
+    // =========================
+    const protRes = await fetch(
+      `/api/user/protection-status?email=${encodeURIComponent(email)}`
+    );
+
+    const protText = await protRes.text();
+
+    console.log("PROTECTION API STATUS:", protRes.status);
+    console.log("PROTECTION API RESPONSE:", protText);
+
+    let protData;
+
+    try {
+      protData = JSON.parse(protText);
+    } catch (jsonError) {
+      throw new Error(
+        `Protection API JSON nahi bhej rahi. Status: ${
+          protRes.status
+        }. Response: ${protText.slice(0, 200)}`
+      );
+    }
+
+    if (!protRes.ok) {
+      throw new Error(
+        protData?.error || "Failed to load protection status"
+      );
+    }
+
+    if (protData?.success) {
+      setProtectionPoints(protData.protectionPoints ?? 0);
+    }
+  } catch (err) {
+    console.error("Profile refresh error:", err);
+  }
+};
+
+// ─── Auth State Listener — triggers profile load & stops loading screen ────
+useEffect(() => {
+  const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      setFirebaseUser(user);
+      setUserEmail(user.email || "");
+      setPlayerEmailInput(user.email || "");
+      await refreshUserProfile(user.uid, user.email, user.displayName);
+      setLoading(false);
+    } else {
+      setLoading(false);
+      router.push("/login");
+    }
+  });
+
+  return () => unsubscribe();
+}, []);
 
   // ─── Recompute level whenever matchesPlayed changes ────────────────────────
   useEffect(() => {
@@ -207,42 +295,62 @@ export default function DashboardPage() {
     }
   }, [matchesPlayed]);
 
+
+
   // ─── Level-up Crown Reward Watcher ──────────────────────────────────────────
-  useEffect(() => {
-    if (prevLevelRef.current === null) return;
-    if (playerLevel <= prevLevelRef.current) return;
-
-    const reward = getCrownRewardForLevel(playerLevel);
-    if (reward > 0) {
-      fetch("/api/wallet/add-crowns", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: userEmail, crowns: reward }),
-      })
-        .then((r) => r.json())
-        .then((d) => {
-          if (d.success) {
-            setCrowns(d.crowns);
-            const isBumper = CROWN_REWARD_TABLE.find((r) => r.level === playerLevel)?.bumper;
-            setLevelUpCrownMsg(
-              `${isBumper ? "🎉 Bonus Reward!" : "🏆 Level Up!"} You reached Level ${playerLevel} and earned +${reward} 👑 Crowns!`
-            );
-            setTimeout(() => setLevelUpCrownMsg(null), 5000);
-          }
-        })
-        .catch(console.error);
-    }
-
+useEffect(() => {
+  if (prevLevelRef.current === null) {
     prevLevelRef.current = playerLevel;
-  }, [playerLevel]);
+    return;
+  }
 
-  // ─── Tournaments REST fetch ─────────────────────────────────────────────────
-  useEffect(() => {
-    fetch("/api/tournaments")
-      .then((r) => r.json())
-      .then((data) => { if (data.success) setTournaments(data.tournaments); })
-      .catch((err) => console.error("Error fetching tournaments:", err));
-  }, []);
+  if (playerLevel <= prevLevelRef.current) return;
+
+  const oldLevel = prevLevelRef.current;
+
+  fetch("/api/wallet/add-crown", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      email: userEmail,
+      level: playerLevel,
+    }),
+  })
+    .then((r) => r.json())
+    .then((d) => {
+      if (d.success) {
+        setCrowns(d.crowns);
+
+        if (!d.alreadyClaimed && d.reward > 0) {
+          const reachedLevels = d.levelsRewarded || [];
+
+          const rewardText = reachedLevels
+            .map((level) => {
+              const reward = getCrownRewardForLevel(level);
+              return `Level ${level}: +${reward} 👑`;
+            })
+            .join("  ");
+
+          setLevelUpCrownMsg(
+            `🏆 Level Up! You reached Level ${playerLevel} — ${rewardText}`
+          );
+
+          setTimeout(() => {
+            setLevelUpCrownMsg(null);
+          }, 5000);
+        }
+      } else {
+        console.error("Crown reward failed:", d.message);
+      }
+    })
+    .catch((error) => {
+      console.error("Crown reward error:", error);
+    });
+
+  prevLevelRef.current = playerLevel;
+}, [playerLevel]);
 
   const handleLogout = async () => {
     try { await signOut(auth); router.push("/login"); }
@@ -293,120 +401,309 @@ export default function DashboardPage() {
     currentPage * itemsPerPage
   );
 
-  // ─── Match History ──────────────────────────────────────────────────────────
-  const [matchHistory, setMatchHistory] = useState([]);
+ // ─── Match History ──────────────────────────────────────────────────────────
+const [matchHistory, setMatchHistory] = useState([]);
 
-  const addMatchHistoryRecord = (tournamentName, mapName, gameType, entryPaid) => {
-    const newRecord = {
-      id: Date.now(),
-      tournamentName,
-      mapName,
-      gameType,
-      playerLevel,
-      joinTime: new Date().toISOString(),
-      entryPaid,
-      screenshotUrl: null,
-    };
-    setMatchHistory((prev) => [newRecord, ...prev].slice(0, 5));
+const addMatchHistoryRecord = (
+  tournamentName,
+  mapName,
+  gameType,
+  entryPaid,
+  dbMatchId
+) => {
+  const newRecord = {
+    id: Date.now(),
+    dbMatchId,
+    tournamentName,
+    mapName,
+    gameType,
+    playerLevel,
+    joinTime: new Date().toISOString(),
+    entryPaid,
+    screenshotUrl: null,
   };
 
-  const handleUploadScreenshot = async (tournamentName) => {
-    if (!matchScreenshot) { alert("Please select a screenshot first."); return; }
-    setUploadingSS(true);
-    const formData = new FormData();
-    formData.append("file", matchScreenshot);
-    formData.append("email", userEmail);
-    formData.append("tournamentName", tournamentName || "Match");
+  setMatchHistory((prev) => [newRecord, ...prev].slice(0, 5));
+};
+
+
+// ─── Upload Match Screenshot ────────────────────────────────────────────────
+const handleUploadScreenshot = async (tournamentName, dbMatchId) => {
+  console.log("Uploading Match ID:", dbMatchId);
+
+  if (!matchScreenshot) {
+    alert("Pehle screenshot select karo!");
+    return;
+  }
+
+  if (!dbMatchId) {
+    alert("Match ID nahi mila. Match ko dobara join karo.");
+    return;
+  }
+
+  if (!userEmail) {
+    alert("User email nahi mila. Please page refresh karo.");
+    return;
+  }
+
+  setUploadingSS(true);
+
+  const formData = new FormData();
+
+  formData.append("file", matchScreenshot);
+  formData.append("email", userEmail);
+  formData.append("matchId", String(dbMatchId));
+  formData.append("tournamentName", tournamentName || "");
+
+  try {
+    const res = await fetch("/api/match/upload-ss", {
+      method: "POST",
+      body: formData,
+    });
+
+    console.log("Upload SS status:", res.status);
+    console.log(
+      "Upload SS content-type:",
+      res.headers.get("content-type")
+    );
+
+    // JSON directly parse mat karo.
+    // Pehle text lo taaki <!DOCTYPE html> aaye to exact error pata chale.
+    const responseText = await res.text();
+
+    console.log("Upload SS response:", responseText);
+
+    let data;
+
     try {
-      const res  = await fetch("/api/match/upload-ss", { method: "POST", body: formData });
-      const data = await res.json();
-      if (data.success) {
-        alert("Screenshot uploaded successfully. Our admin team will verify it shortly.");
-        setMatchScreenshot(null);
-        if (typeof data.matchesPlayed === "number") setMatchesPlayed(data.matchesPlayed);
-      } else {
-        alert(`Upload failed: ${data.message}`);
-      }
-    } catch (err) {
-      console.error("Upload Error:", err);
-      alert("Something went wrong. Please try again.");
-    } finally {
-      setUploadingSS(false);
+      data = JSON.parse(responseText);
+    } catch (jsonError) {
+      console.error("Invalid JSON response:", jsonError);
+
+      throw new Error(
+        `Upload API JSON nahi de rahi. Status: ${res.status}. Response: ${responseText.slice(
+          0,
+          200
+        )}`
+      );
     }
-  };
 
-  const getTimeAgo = (dateString) => {
-    if (!dateString) return "Just now";
-    const diff = Math.floor((Date.now() - new Date(dateString).getTime()) / 1000);
-    if (diff < 60) return "Just now";
-    const m = Math.floor(diff / 60);
-    if (m < 60) return `${m} mins ago`;
-    const h = Math.floor(m / 60);
-    if (h < 24) return `${h} hours ago`;
-    return `${Math.floor(h / 24)} days ago`;
-  };
+    if (!res.ok) {
+      throw new Error(
+        data?.error ||
+        data?.message ||
+        `Upload failed with status ${res.status}`
+      );
+    }
 
-  // ─── XP / 2D Info handlers ──────────────────────────────────────────────────
-  const handleXpInfoClick = () => {
-    setXpModalMessage(
-      "Match XP increases automatically every time you join and complete a tournament match. Keep playing regularly to level up."
-    );
-    setTimeout(() => setXpModalMessage(null), 4000);
-  };
+    if (data.success) {
+      alert(
+        "🎉 Match screenshot successfully upload ho gaya! Admin verify hone ke baad winning wallet me add kar diya jayega."
+      );
 
-  const handleInactivityInfoClick = () => {
-    setInactivityModalMessage(
-      protectionPoints > 0
-        ? `🛡️ Protection active: your rank is currently safeguarded. If you stay inactive for more than 2 days, 1 Protection Point will be used automatically to prevent an XP or rank drop.`
-        : `⚠️ You have 0 Protection Points left. If you stay inactive for more than 2 days without joining a match, your XP and rank tier may be penalized.`
-    );
-    setTimeout(() => setInactivityModalMessage(null), 4000);
-  };
+      setMatchScreenshot(null);
 
-  const handleShareMatch = (match) => {
-    const shareText = `I just joined ${match.tournamentName} (${match.mapName}) on Battle Crown! Join in and compete for cash prizes. 🏆`;
-    if (navigator.share) {
-      navigator.share({ title: "Battle Crown Match", text: shareText, url: window.location.href }).catch(() => {});
+      setMatchHistory((prev) =>
+        prev.map((m) =>
+          String(m.dbMatchId) === String(dbMatchId)
+            ? {
+                ...m,
+                screenshotUrl:
+                  data?.matchRecord?.screenshotUrl || null,
+              }
+            : m
+        )
+      );
     } else {
-      navigator.clipboard.writeText(shareText);
-      setShareMessage("Match details copied to clipboard.");
-      setTimeout(() => setShareMessage(null), 3000);
+      alert(
+        "Error: " +
+          (data?.error ||
+            data?.message ||
+            "Screenshot upload failed.")
+      );
     }
-  };
+  } catch (err) {
+    console.error("Upload Error:", err);
 
-  // ─── Crown Redeem ───────────────────────────────────────────────────────────
-  const handleRedeemTicket = async () => {
-    if (crowns < 20) {
-      setRedeemMessage(`You need 20 Crowns to redeem (current: ${crowns} 👑).`);
-      setTimeout(() => setRedeemMessage(null), 4000);
-      return;
-    }
-    try {
-      const res  = await fetch("/api/wallet/redeem", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: userEmail }),
+    alert(
+      err?.message ||
+        "Kuch gadbad ho gayi, dubara try karo."
+    );
+  } finally {
+    setUploadingSS(false);
+  }
+};
+
+
+// ─── Time Ago ────────────────────────────────────────────────────────────────
+const getTimeAgo = (dateString) => {
+  if (!dateString) return "Just now";
+
+  const diff = Math.floor(
+    (Date.now() - new Date(dateString).getTime()) / 1000
+  );
+
+  if (diff < 60) return "Just now";
+
+  const m = Math.floor(diff / 60);
+
+  if (m < 60) {
+    return `${m} mins ago`;
+  }
+
+  const h = Math.floor(m / 60);
+
+  if (h < 24) {
+    return `${h} hours ago`;
+  }
+
+  return `${Math.floor(h / 24)} days ago`;
+};
+
+
+// ─── XP Info ─────────────────────────────────────────────────────────────────
+const handleXpInfoClick = () => {
+  setXpModalMessage(
+    "Match XP increases automatically every time you join and complete a tournament match. Keep playing regularly to level up."
+  );
+
+  setTimeout(() => {
+    setXpModalMessage(null);
+  }, 4000);
+};
+
+
+// ─── Inactivity Info ─────────────────────────────────────────────────────────
+const handleInactivityInfoClick = () => {
+  setInactivityModalMessage(
+    protectionPoints > 0
+      ? `🛡️ Protection active: your rank is currently safeguarded. If you stay inactive for more than 2 days, 1 Protection Point will be used automatically to prevent an XP or rank drop.`
+      : `⚠️ You have 0 Protection Points left. If you stay inactive for more than 2 days without joining a match, your XP and rank tier may be penalized.`
+  );
+
+  setTimeout(() => {
+    setInactivityModalMessage(null);
+  }, 4000);
+};
+
+
+// ─── Share Match ─────────────────────────────────────────────────────────────
+const handleShareMatch = (match) => {
+  const shareText =
+    `I just joined ${match.tournamentName} (${match.mapName}) on Battle Crown! ` +
+    `Join in and compete for cash prizes. 🏆`;
+
+  if (navigator.share) {
+    navigator
+      .share({
+        title: "Battle Crown Match",
+        text: shareText,
+        url: window.location.href,
+      })
+      .catch(() => {});
+  } else {
+    navigator.clipboard
+      .writeText(shareText)
+      .then(() => {
+        setShareMessage("Match details copied to clipboard.");
+
+        setTimeout(() => {
+          setShareMessage(null);
+        }, 3000);
+      })
+      .catch(() => {
+        setShareMessage("Copy failed.");
       });
-      const data = await res.json();
-      if (data.success) {
-        setCrowns(data.crowns);
-        setDepositWallet(data.depositWallet);
-        setRedeemMessage("Success! 20 Crowns redeemed for a free ₹10 match ticket.");
-      } else {
-        setRedeemMessage(data.error || "Redemption failed.");
-      }
-     } catch {
-      setRedeemMessage("Server error during redemption.");
+  }
+};
+
+
+// ─── Crown Redeem ────────────────────────────────────────────────────────────
+const handleRedeemTicket = async () => {
+  if (crowns < 20) {
+    setRedeemMessage(
+      `You need 20 Crowns to redeem (current: ${crowns} 👑).`
+    );
+
+    setTimeout(() => {
+      setRedeemMessage(null);
+    }, 4000);
+
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/wallet/redeem", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        email: userEmail,
+      }),
+    });
+
+    console.log("Redeem status:", res.status);
+
+    const responseText = await res.text();
+
+    console.log("Redeem response:", responseText);
+
+    let data;
+
+    try {
+      data = JSON.parse(responseText);
+    } catch (jsonError) {
+      console.error("Redeem invalid JSON:", jsonError);
+
+      throw new Error(
+        `Redeem API JSON nahi de rahi. Status: ${res.status}`
+      );
     }
-    setTimeout(() => setRedeemMessage(null), 4000);
-  };
+
+    if (!res.ok) {
+      throw new Error(
+        data?.error ||
+          data?.message ||
+          `Redemption failed: ${res.status}`
+      );
+    }
+
+    if (data.success) {
+      setCrowns(data.crowns ?? 0);
+      setDepositWallet(data.depositWallet ?? 0);
+
+      setRedeemMessage(
+        "Success! 20 Crowns redeemed for a free ₹10 match ticket."
+      );
+    } else {
+      setRedeemMessage(
+        data?.error ||
+          data?.message ||
+          "Redemption failed."
+      );
+    }
+  } catch (err) {
+    console.error("Redeem Error:", err);
+
+    setRedeemMessage(
+      err?.message ||
+        "Server error during redemption."
+    );
+  }
+
+  setTimeout(() => {
+    setRedeemMessage(null);
+  }, 4000);
+};
+
 
   // ─── Tournament Card Component ──────────────────────────────────────────────
   function TournamentCard({ tournament }) {
     const [currentSlide, setCurrentSlide] = useState(0);
     const gameName    = (tournament.game || tournament.gameType || tournament.title || "").toLowerCase();
     const isFreeFire  = gameName.includes("free") || gameName.includes("ff");
-    const maxSlots    = isFreeFire ? 50 : 100;
+    const maxSlots    = tournament.maxSlots || (isFreeFire ? 50 : 100);
     const displayMode = tournament.mode || (isFreeFire ? "Clash Squad / BR" : "Squad / Solo");
     const joinedCount = tournament.joined_players_count || 0;
     const isFull      = joinedCount >= maxSlots;
@@ -441,12 +738,15 @@ export default function DashboardPage() {
           </div>
           <div className="absolute top-2 right-2">
             <span className="text-xs font-bold px-3 py-1.5 bg-black/90 border border-yellow-500/50 text-yellow-400 rounded-md shadow-lg backdrop-blur-sm">
-              Slots: {tournament.joinedCount || 0} / 100
+              Slots: {tournament.joinedCount || 0} / {maxSlots}
             </span>
           </div>
           <div className="absolute bottom-2 left-3 right-3">
             <h3 className="font-black tracking-wide uppercase text-sm sm:text-base text-white">{tournament.title}</h3>
             <p className="text-[11px] text-gray-300 font-mono">Map: <span className="text-cyan-300 font-bold">{tournament.map}</span></p>
+            <div className="mt-1.5">
+  <MatchCountdown matchTime={tournament.matchTime} />
+</div>
           </div>
         </div>
         <div className="p-4 bg-[#0f141c]/90 flex items-center justify-between border-t border-gray-900">
@@ -500,7 +800,7 @@ export default function DashboardPage() {
       )}
 
       {/* Header */}
-      <header className="flex justify-between items-center border-b border-gray-800 pb-4 mb-8 relative z-10">
+      <header className="flex justify-between items-center border-b border-gray-800 pb-4 mb-8 relative z-50">
         <div className="flex items-center gap-2">
           <span className="text-xl font-black tracking-tighter italic">BATTLE <span className="text-cyan-400">CROWN</span></span>
           <span className="text-[10px] bg-red-600 text-white font-bold px-1.5 py-0.5 uppercase">DUAL-GAME ESPORTS</span>
@@ -516,6 +816,7 @@ export default function DashboardPage() {
             <p className="text-sm font-bold font-mono text-cyan-400">{bgmiIgn} | {ffIgn}</p>
             <p className="text-xs text-gray-400 font-mono"><span className="text-yellow-400 font-bold">{currentTier.name} {currentTier.badge}</span></p>
           </div>
+          <NotificationBell />
           <button onClick={handleLogout} className="px-4 py-2 bg-transparent border border-gray-700 text-xs uppercase font-bold hover:border-red-600 hover:text-red-600 cursor-pointer">
             Logout
           </button>
@@ -592,24 +893,68 @@ export default function DashboardPage() {
               </div>
 
               {isEditingProfile && (
-                <button onClick={() => { setBgmiIgn(tempBgmiIgn); setBgmiUid(tempBgmiUid); setFfIgn(tempFfIgn); setFfUid(tempFfUid); setIsEditingProfile(false); }} className="w-full py-2 bg-cyan-400 text-black font-bold text-xs uppercase cursor-pointer">
-                  Confirm Profile Updates
-                </button>
+                <button onClick={async () => {
+  setBgmiIgn(tempBgmiIgn); setBgmiUid(tempBgmiUid); setFfIgn(tempFfIgn); setFfUid(tempFfUid); setIsEditingProfile(false);
+  try {
+    await fetch("/api/user/update-profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: userEmail, bgmiIgn: tempBgmiIgn, bgmiUid: tempBgmiUid, ffIgn: tempFfIgn, ffUid: tempFfUid }),
+    });
+  } catch (err) { console.error("Profile save error:", err); }
+}} className="w-full py-2 bg-cyan-400 text-black font-bold text-xs uppercase cursor-pointer">
+  Confirm Profile Updates
+</button>
               )}
 
               {/* Bio */}
               <div className="pt-2 border-t border-gray-800">
                 <div className="flex justify-between items-center mb-1">
                   <span className="text-[10px] text-gray-400 uppercase">Social Bio (Max 100 Words)</span>
-                  <button onClick={() => {
-                    const wordCount = tempBio.trim().split(/\s+/).filter(Boolean).length;
-                    if (wordCount > 100) { setBioError("Bio cannot exceed 100 words."); return; }
-                    setBioError(null);
-                    if (isEditingBio) setBio(tempBio);
-                    setIsEditingBio(!isEditingBio);
-                  }} className="text-[10px] text-cyan-400 font-bold cursor-pointer">
-                    {isEditingBio ? "Save Bio ✓" : "Edit Bio"}
-                  </button>
+                 <button
+  onClick={async () => {
+    if (!isEditingBio) {
+      setTempBio(bio || "");
+      setIsEditingBio(true);
+      return;
+    }
+
+    const wordCount = tempBio.trim().split(/\s+/).filter(Boolean).length;
+
+    if (wordCount > 100) {
+      setBioError("Bio cannot exceed 100 words.");
+      return;
+    }
+
+    setBioError(null);
+
+    try {
+      const response = await fetch("/api/user/update-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: userEmail,
+          bio: tempBio,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Failed to save bio");
+      }
+
+      setBio(tempBio);
+      setIsEditingBio(false);
+    } catch (err) {
+      console.error("Bio save error:", err);
+      setBioError("Failed to save bio. Please try again.");
+    }
+  }}
+  className="text-[10px] text-cyan-400 font-bold cursor-pointer"
+>
+  {isEditingBio ? "Save Bio ✓" : "Edit Bio"}
+</button>
                 </div>
                 {isEditingBio ? (
                   <>
@@ -768,7 +1113,7 @@ export default function DashboardPage() {
                     )}
                   </div>
                   {!match.screenshotUrl && (
-                    <button onClick={() => handleUploadScreenshot(match.tournamentName)} disabled={uploadingSS} className="bg-cyan-400 hover:bg-cyan-300 text-black font-extrabold text-[10px] px-3 py-1 rounded cursor-pointer transition-all uppercase tracking-wider">
+                    <button onClick={() => handleUploadScreenshot(match.tournamentName, match.dbMatchId)} disabled={uploadingSS} className="bg-cyan-400 hover:bg-cyan-300 text-black font-extrabold text-[10px] px-3 py-1 rounded cursor-pointer transition-all uppercase tracking-wider">
                       {uploadingSS ? "Uploading..." : "Submit Proof"}
                     </button>
                   )}
@@ -835,31 +1180,225 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Step 1: Rules */}
-      {isRulesModalOpen && activeMatch && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#0f141c] border border-cyan-500 p-6 max-w-md w-full space-y-4 shadow-2xl">
-            <h3 className="text-sm font-bold text-cyan-400 uppercase tracking-wide">// RULES & REGULATIONS: {activeMatch.title}</h3>
-            <div className="bg-black/60 p-3.5 border border-gray-800 text-xs space-y-2 text-gray-300 leading-relaxed">
-              <p className="font-bold text-yellow-400">⚠️ Mandatory Tournament Guidelines:</p>
-              <p>1. Room ID and Password will be shared 15 minutes before the match start time.</p>
-              <p>2. Teaming, emulator usage (in mobile lobbies), or hacks will result in an instant ban.</p>
-              <p>3. Players must check-in with their correct IGN and UID.</p>
-            </div>
-            <label className="flex items-center gap-2.5 text-xs text-cyan-300 cursor-pointer pt-1 bg-cyan-950/30 p-2.5 border border-cyan-800/50">
-              <input type="checkbox" checked={hasAgreedRules} onChange={(e) => setHasAgreedRules(e.target.checked)} className="accent-cyan-400 w-4 h-4 cursor-pointer" />
-              <span className="font-bold">I agree to the Rules & Regulations and Terms</span>
-            </label>
-            <div className="flex justify-end gap-2 pt-3 border-t border-gray-800">
-              <button onClick={() => { setIsRulesModalOpen(false); setActiveMatch(null); }} className="px-4 py-2 bg-gray-800 text-xs uppercase font-bold cursor-pointer">Back</button>
-              <button onClick={() => {
-                if (!hasAgreedRules) { alert("You must agree to the rules to proceed."); return; }
-                setIsRulesModalOpen(false); setIsDetailsModalOpen(true);
-              }} className="px-5 py-2 bg-cyan-400 text-black font-black text-xs uppercase cursor-pointer hover:bg-cyan-300">Proceed ➤</button>
-            </div>
-          </div>
+     {/* Step 1: Rules */}
+{isRulesModalOpen && activeMatch && (
+  <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div className="bg-[#0f141c] border border-cyan-500 p-6 max-w-lg w-full space-y-4 shadow-2xl max-h-[85vh] flex flex-col">
+      <h3 className="text-sm font-bold text-cyan-400 uppercase tracking-wide flex-shrink-0">
+        🛡️ BATTLE CROWN — OFFICIAL RULES & REGULATIONS
+      </h3>
+
+      <div className="bg-black/60 p-4 border border-gray-800 text-xs space-y-4 text-gray-300 leading-relaxed overflow-y-auto pr-2">
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">1. Eligibility</p>
+          <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
+            <li>Participants must have a valid Battle Crown account.</li>
+            <li>Only one account per player is allowed. Multiple accounts are strictly prohibited.</li>
+            <li>Players must provide a valid Game UID and IGN. Incorrect details may lead to disqualification.</li>
+          </ul>
         </div>
-      )}
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">2. Tournament Entry</p>
+          <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
+            <li>Entry fees are non-refundable once the tournament starts.</li>
+            <li>Joining a tournament confirms acceptance of all Battle Crown rules.</li>
+            <li>Entry is confirmed only after successful payment and cannot be transferred to another player.</li>
+          </ul>
+        </div>
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">3. Room Details</p>
+          <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
+            <li>Room ID & Password will be shown approximately 10 minutes before match start.</li>
+            <li>Players are responsible for joining on time.</li>
+            <li>Battle Crown is not responsible for internet or device issues.</li>
+          </ul>
+        </div>
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">4. Match Start Rules</p>
+          <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
+            <li>Players must join before the scheduled time. Late players may lose their slot.</li>
+            <li>Matches will start according to schedule — no rematch for late joining.</li>
+          </ul>
+        </div>
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">5. Fair Play Policy</p>
+          <p className="text-gray-400 mb-1">The following are strictly prohibited:</p>
+          <ul className="list-disc pl-4 space-y-0.5 text-gray-400 grid grid-cols-2 gap-x-2">
+            <li>Hacks / Cheats</li>
+            <li>Mod APKs</li>
+            <li>ESP</li>
+            <li>Aim Assist</li>
+            <li>Wall Hack</li>
+            <li>Speed Hack</li>
+            <li>Third-party software</li>
+            <li>Unauthorized emulator usage in (mobile-only tournaments)</li>
+            <li>Teaming (Solo matches)</li>
+            <li>Account sharing</li>
+            <li>Intentional feeding</li>
+            <li>Match fixing</li>
+            <li>Exploiting game bugs</li>
+          </ul>
+          <p className="text-red-400 font-bold mt-1">Violation results in immediate disqualification.</p>
+        </div>
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">6. Result Submission</p>
+          <p className="text-gray-400 mb-1">Players must upload:</p>
+          <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
+            <li>Match Screenshot</li>
+            <li>Correct Kill Count</li>
+            <li>Rank</li>
+          </ul>
+          <p className="text-gray-400 mt-1">False submissions may result in permanent suspension.</p>
+        </div>
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">7. Prize Distribution</p>
+          <p className="text-gray-400 mb-1">Prize calculation includes:</p>
+          <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
+            <li>Placement Prize</li>
+            <li>Kill Rewards (if applicable)</li>
+          </ul>
+          <p className="text-gray-400 mt-1">Rewards are credited only after admin verification.</p>
+        </div>
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">8. Verification Process</p>
+          <p className="text-gray-400 mb-1">Battle Crown reserves the right to:</p>
+          <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
+            <li>Review screenshots</li>
+            <li>Request additional proof</li>
+            <li>Delay prize distribution if verification is pending</li>
+            <li>Reject suspicious results</li>
+          </ul>
+          <p className="text-gray-400 mt-1">Admin decisions are final.</p>
+        </div>
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">9. Wallet Rules</p>
+          <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
+            <li>Prize money is credited to the Winnings Wallet.</li>
+            <li>Deposit Wallet cannot be used for withdrawals.</li>
+            <li>Withdrawals are processed after successful verification.</li>
+            <li>Battle Crown may require KYC verification before processing withdrawals as per applicable requirements.</li>
+          </ul>
+        </div>
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">10. Refund Policy</p>
+          <p className="text-gray-400 mb-1">Refunds are provided only if:</p>
+          <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
+            <li>Tournament is cancelled by Battle Crown.</li>
+            <li>Server failure prevents match start.</li>
+            <li>Failed or incomplete payments will be handled according to payment gateway status verification.</li>
+          </ul>
+          <p className="text-gray-400 mt-1">No refunds for: late joining, wrong UID, internet issues, device problems, or player absence.</p>
+        </div>
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">11. Disqualification</p>
+          <p className="text-gray-400 mb-1">Players may be disqualified for:</p>
+          <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
+            <li>Fake screenshots, kills, or ranks</li>
+            <li>Toxic behaviour or abusive language</li>
+            <li>Impersonation</li>
+            <li>Rule violations or cheating</li>
+          </ul>
+        </div>
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">12. Account Suspension</p>
+          <p className="text-gray-400 mb-1">Battle Crown may temporarily or permanently suspend accounts for:</p>
+          <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
+            <li>Fraud or payment abuse</li>
+            <li>Multiple accounts</li>
+            <li>Exploits or security violations</li>
+          </ul>
+          <p className="text-gray-400 mt-1">Suspended accounts lose tournament eligibility.</p>
+        </div>
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">13. Tournament Cancellation</p>
+          <p className="text-gray-400 mb-1">Battle Crown may cancel tournaments because of:</p>
+          <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
+            <li>Server maintenance or technical issues</li>
+            <li>Low participation</li>
+            <li>Emergency situations</li>
+          </ul>
+          <p className="text-gray-400 mt-1">Refund policy applies where applicable.</p>
+        </div>
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">14. Network Responsibility</p>
+          <p className="text-gray-400">Battle Crown is not responsible for: internet disconnection, device overheating, power failure, game crashes, ping issues, or FPS drops.</p>
+        </div>
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">15. Content Policy</p>
+          <p className="text-gray-400 mb-1">Players must not upload:</p>
+          <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
+            <li>Edited screenshots or fake proof</li>
+            <li>Offensive or illegal content</li>
+          </ul>
+          <p className="text-gray-400 mt-1">Such content results in immediate account action.</p>
+        </div>
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">16. Privacy</p>
+          <p className="text-gray-400 mb-1">Battle Crown stores: Email, Game UID, IGN, Match History, and Wallet History.</p>
+          <p className="text-gray-400">Data is used only for tournament operations.</p>
+          <li>Battle Crown does not sell user personal information to third parties.</li>
+        </div>
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">17. Limitation of Liability</p>
+          <p className="text-gray-400">Battle Crown is not responsible for game server outages, publisher issues, device failures, internet failures, or force majeure events.</p>
+        </div>
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">18. Changes to Rules</p>
+          <p className="text-gray-400">Battle Crown may update these rules without prior notice. Continued use of the platform means acceptance of updated rules.</p>
+        </div>
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">19. Final Decision</p>
+          <p className="text-gray-400">All tournament-related decisions made by Battle Crown Admins are final and binding. Admin decisions are based on available evidence and verification results. Players may contact support for clarification regarding decisions.</p>
+        </div>
+
+        <div>
+          <p className="font-bold text-yellow-400 mb-1">20. Acceptance</p>
+          <p className="text-gray-400">By joining any Battle Crown tournament, you acknowledge that you have read, understood, and agreed to these Rules & Regulations.</p>
+        </div>
+
+        <div className="border-t border-gray-800 pt-3">
+          <p className="font-bold text-orange-400 mb-1">⚠️ Important Disclaimer</p>
+          <p className="text-gray-400">
+            Battle Crown is an independent esports tournament platform and is not affiliated with, endorsed by, or sponsored by Krafton, PUBG/BGMI, Garena, Free Fire, Google, Apple, or any game publisher. All game names, logos, and trademarks belong to their respective owners.
+          </p>
+        </div>
+
+      </div>
+
+      <label className="flex items-center gap-2.5 text-xs text-cyan-300 cursor-pointer pt-1 bg-cyan-950/30 p-2.5 border border-cyan-800/50 flex-shrink-0">
+        <input type="checkbox" checked={hasAgreedRules} onChange={(e) => setHasAgreedRules(e.target.checked)} className="accent-cyan-400 w-4 h-4 cursor-pointer" />
+        <span className="font-bold">I agree to Battle Crown Rules & Regulations and Terms of Service.</span>
+      </label>
+
+      <div className="flex justify-end gap-2 pt-3 border-t border-gray-800 flex-shrink-0">
+        <button onClick={() => { setIsRulesModalOpen(false); setActiveMatch(null); }} className="px-4 py-2 bg-gray-800 text-xs uppercase font-bold cursor-pointer">Back</button>
+        <button onClick={() => {
+          if (!hasAgreedRules) { alert("You must agree to the rules to proceed."); return; }
+          setIsRulesModalOpen(false); setIsDetailsModalOpen(true);
+        }} className="px-5 py-2 bg-cyan-400 text-black font-black text-xs uppercase cursor-pointer hover:bg-cyan-300">Proceed ➤</button>
+      </div>
+    </div>
+  </div>
+)}
 
       {/* Step 2: Prize Pool Details */}
       {isDetailsModalOpen && activeMatch && (
@@ -890,10 +1429,20 @@ export default function DashboardPage() {
             <div className="bg-cyan-950/30 p-3.5 border border-cyan-800/60 rounded space-y-2">
               <h4 className="text-yellow-400 font-bold uppercase text-xs text-center">🏆 PRIZE POOL DISTRIBUTION (%) 🏆</h4>
               <div className="space-y-1 text-xs font-mono">
-                <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-yellow-400 font-bold">🥇 1st Place:</span><span className="text-cyan-300">24% of pool</span></div>
-                <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-gray-300 font-bold">🥈 2nd Place:</span><span className="text-cyan-300">14% of pool</span></div>
-                <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-red-400 font-bold">ª“ Per Kill Bounty:</span><span className="text-cyan-300">1% per kill</span></div>
+                <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-yellow-400 font-bold">🥇 1st Place:</span><span className="text-cyan-300">20% of pool</span></div>
+                <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-gray-300 font-bold">🥈 2nd Place:</span><span className="text-cyan-300">10% of pool</span></div>
+                 <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-gray-300 font-bold">🥉 3rd Place:</span><span className="text-cyan-300">5% of pool</span></div>
+                <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-red-400 font-bold">🎯 Per Kill Bounty:</span><span className="text-cyan-300">₹5/kill • Higher entry = Higher kill reward</span></div>
               </div>
+              <div className="mt-3 bg-yellow-950/20 border border-yellow-700/40 p-3 rounded text-center">
+  <p className="text-yellow-400 font-bold text-xs uppercase tracking-wider">
+    ⚔️ GOOD LUCK, WARRIOR! ⚔️
+  </p>
+  <p className="text-gray-300 text-[11px] font-mono mt-1">
+    Enter the battlefield, trust your skills & fight till the final zone.
+    Play fair. Stay focused. Claim your Crown! 👑🔥
+  </p>
+</div>
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setIsDetailsModalOpen(false)} className="px-4 py-2 bg-gray-800 text-xs uppercase cursor-pointer">Cancel</button>
@@ -980,7 +1529,7 @@ export default function DashboardPage() {
                         setMatchesPlayed((p) => p + 1);
                       }
 
-                      addMatchHistoryRecord(activeMatch.title, activeMatch.map, selectedGameTab === "bgmi" ? "BGMI" : "FREE FIRE", `₹${activeMatch.entryFee}`);
+                      addMatchHistoryRecord(activeMatch.title, activeMatch.map, selectedGameTab === "bgmi" ? "BGMI" : "FREE FIRE", `₹${activeMatch.entryFee}`, data.matchHistoryId);
                       alert(`Successfully joined ${activeMatch.title}!`);
                       setIsConfirmModalOpen(false);
                     } else {

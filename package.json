@@ -10,9 +10,11 @@
   },
   "dependencies": {
     "@cashfreepayments/cashfree-js": "^1.0.7",
+    "@google/genai": "^2.15.0",
     "@prisma/client": "^6.19.3",
     "cashfree-pg": "^6.0.4",
-    "firebase": "^12.16.0",
+    "firebase": "^12.17.1",
+    "firebase-admin": "^14.2.0",
     "lucide-react": "^1.28.0",
     "next": "16.2.12",
     "react": "19.2.4",

@@ -9,6 +9,7 @@ import {
   sendEmailVerification, 
   signOut 
 } from "firebase/auth";
+import { requestNotificationPermission } from "../lib/firebase-messaging";
 
 export default function AuthPage() {
   const [isLoginMode, setIsLoginMode] = useState(true);
@@ -36,6 +37,20 @@ export default function AuthPage() {
       }
 
       setSuccessMessage("✅ Login Successful! Entering arena...");
+      const fcmToken = await requestNotificationPermission();
+
+if (fcmToken) {
+  await fetch("/api/user/update-fcm", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      uid: user.uid,
+      fcmToken,
+    }),
+  });
+}
       setTimeout(() => {
         router.push("/dashboard");
       }, 1000);

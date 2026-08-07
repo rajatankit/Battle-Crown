@@ -12,8 +12,9 @@ export default function AdminWithdrawalsPage() {
     setLoading(true);
     setErrorMsg("");
     try {
-      const res = await fetch("/api/admin/withdrawals", {
-        headers: { "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_SECRET_KEY },
+      const res = await fetch("/api/admin/withdraw", {
+        headers: { "x-admin-key": 
+          process.env.NEXT_PUBLIC_ADMIN_SECRET_KEY },
       });
       const data = await res.json();
       setRequests(data.requests || []);
@@ -30,37 +31,58 @@ export default function AdminWithdrawalsPage() {
   }, []);
 
   const handleAction = async (request, action) => {
-    if (action === "APPROVE") {
-      const confirmed = window.confirm(
-        `Confirm karo: ₹${request.amount} UPI ID "${request.upiId}" pe manually bhej diya hai?`
-      );
-      if (!confirmed) return;
-    }
+  if (action === "APPROVE") {
+    const confirmed = window.confirm(
+      `Confirm karo: ₹${request.amount} UPI ID "${request.upiId}" pe manually bhej diya hai?`
+    );
+    if (!confirmed) return;
+  }
 
-    setProcessingId(request.id);
+  setProcessingId(request.id);
+
+  try {
+    const res = await fetch("/api/wallet/withdrawals/verify", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_SECRET_KEY,
+      },
+      body: JSON.stringify({
+        requestId: request.id,
+        action,
+      }),
+    });
+
+    const text = await res.text();
+
+    let data;
+
     try {
-      const res = await fetch("/api/admin/withdrawals/verify", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_SECRET_KEY,
-        },
-        body: JSON.stringify({ requestId: request.id, action }),
-      });
-      const data = await res.json();
-
-      if (data.success) {
-        setRequests((prev) => prev.filter((r) => r.id !== request.id));
-        alert(data.message);
-      } else {
-        alert(data.error || "Something went wrong");
-      }
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setProcessingId(null);
+      data = JSON.parse(text);
+    } catch {
+      console.error("Server response:", text);
+      throw new Error(
+        `Server ne JSON ke bajay error page bheji. Status: ${res.status}`
+      );
     }
-  };
+
+    if (data.success) {
+      // Approved/Rejected request ko screen se turant hata do
+      setRequests((prev) =>
+        prev.filter((r) => r.id !== request.id)
+      );
+
+      alert(data.message);
+    } else {
+      alert(data.error || "Something went wrong");
+    }
+  } catch (err) {
+    console.error("Withdrawal action error:", err);
+    alert(err.message || "Something went wrong");
+  } finally {
+    setProcessingId(null);
+  }
+};
 
   return (
     <div style={{ maxWidth: 800, margin: "40px auto", padding: 20, fontFamily: "sans-serif" }}>

@@ -17,7 +17,7 @@ export async function POST(req) {
     const file = formData.get("file");
     const email = formData.get("email");
     const tournamentName = formData.get("tournamentName");
-    const tournamentId = formData.get("tournamentId");
+    const tournamentId = formData.get("tournamentId")?.toString().trim();
     const entryFeeStr = formData.get("entryFee") || "10";
     const entryFee = parseFloat(entryFeeStr);
     const ign = formData.get("ign");
@@ -32,7 +32,7 @@ export async function POST(req) {
     }
 
     if (!tournamentId) {
-      return NextResponse.json({ success: false, message: "Tournament ID is required." }, { status: 400 });
+      return NextResponse.json({ success: false, message: "Tournament ID is required" }, { status: 400 });
     }
 
     // 1. Find User and Check Wallet Balance
@@ -53,7 +53,7 @@ export async function POST(req) {
     // 2. DUPLICATE JOIN CHECK — same user can't join the same tournament twice.
     // (Previously this query ran but its result was never checked, so the
     // block below never actually prevented a duplicate join.)
-    const existingJoin = await prisma.matchHistory.findFirst({
+   /*  const existingJoin = await prisma.matchHistory.findFirst({
       where: {
         userId: user.id,
         tournamentId: tournamentId,
@@ -65,7 +65,7 @@ export async function POST(req) {
         { success: false, message: "You have already joined this tournament." },
         { status: 400 }
       );
-    }
+    }   */
 
     // 3. SLOT FULL CHECK — Firebase se latest joinedCount aur maxSlots check karo
     const tournamentRef = doc(db, "tournaments", tournamentId);
@@ -106,7 +106,7 @@ export async function POST(req) {
       newLevel > oldLevel ? sumProtectionPointsBetween(oldLevel, newLevel) : 0;
 
     // 6. Database Transaction: Deduct wallet, +1 Crown, +1 Match XP, Level-up + Create match history
-    const updatedUser = await prisma.$transaction(async (prismaClient) => {
+    const { updatedUser, newMatchHistory } = await prisma.$transaction(async (prismaClient) => {
       const updated = await prismaClient.user.update({
         where: { email: email },
         data: {
@@ -119,7 +119,7 @@ export async function POST(req) {
         },
       });
 
-      await prismaClient.matchHistory.create({
+      const matchRecord = await prismaClient.matchHistory.create({
         data: {
           userId: user.id,
           tournamentId: tournamentId,
@@ -134,10 +134,11 @@ export async function POST(req) {
           mode: mode,
           entryFee: String(entryFee),
           status: "Pending Verification",
+          playerLevel: newLevel,
         },
       });
 
-      return updated;
+      return { updatedUser: updated, newMatchHistory: matchRecord }
     });
 
     // 7. FIREBASE UPDATE: increment joinedCount. If this fails, the wallet
@@ -169,6 +170,10 @@ export async function POST(req) {
         newLevel > oldLevel
           ? `Tournament joined! 🎉 You leveled up to Level ${newLevel}.`
           : "Tournament joined successfully and wallet updated.",
+          matchHistoryId: newMatchHistory.id,
+          match: {
+            id: newMatchHistory.id,
+          },
       depositWallet: updatedUser.depositWallet,
       crowns: updatedUser.crowns,
       matchesPlayed: updatedUser.matchesPlayed,
