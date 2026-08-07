@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
-import { MIN_WITHDRAW_AMOUNT } from "../../../../lib/walletConfig";
+import { MIN_WITHDRAW_AMOUNT } from "../../../lib/walletConfig";
 
 const globalForPrisma = global;
 const prisma = globalForPrisma.prisma || new PrismaClient();

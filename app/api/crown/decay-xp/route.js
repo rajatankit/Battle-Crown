@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
-import { calculateLevelFromMatches, sumProtectionPointsBetween } from "../../../../lib/levelConfig";
+import { calculateLevelFromMatches, sumProtectionPointsBetween } from "../../../lib/levelConfig";
 
 const globalForPrisma = global;
 const prisma = globalForPrisma.prisma || new PrismaClient();

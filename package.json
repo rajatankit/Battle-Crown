@@ -11,6 +11,7 @@
   "dependencies": {
     "@cashfreepayments/cashfree-js": "^1.0.7",
     "@google/genai": "^2.15.0",
+    "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^6.19.3",
     "cashfree-pg": "^6.0.4",
     "firebase": "^12.17.1",
