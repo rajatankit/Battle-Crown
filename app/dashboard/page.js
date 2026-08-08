@@ -160,6 +160,13 @@ export default function DashboardPage() {
 // ─── FETCH USER PROFILE ─────────────────────────────────────────────────────
 const refreshUserProfile = async (uid, email, displayName) => {
   try {
+    // Firebase se current logged-in user ka fresh ID token lo
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      throw new Error("No authenticated user found");
+    }
+    const idToken = await currentUser.getIdToken();
+
     // =========================
     // USER PROFILE
     // =========================
@@ -167,6 +174,7 @@ const refreshUserProfile = async (uid, email, displayName) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`,
       },
       body: JSON.stringify({
         uid,
@@ -174,6 +182,7 @@ const refreshUserProfile = async (uid, email, displayName) => {
         name: displayName || "Player",
       }),
     });
+   
 
     // Pehle response ko text me read karo
     const responseText = await res.text();
