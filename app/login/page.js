@@ -37,20 +37,32 @@ export default function AuthPage() {
       }
 
       setSuccessMessage("✅ Login Successful! Entering arena...");
+     
       const fcmToken = await requestNotificationPermission();
 
 if (fcmToken) {
-  await fetch("/api/user/update-fcm", {
+  const idToken = await user.getIdToken();
+
+  const fcmResponse = await fetch("/api/user/update-fcm", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Authorization: `Bearer ${idToken}`,
     },
     body: JSON.stringify({
-      uid: user.uid,
       fcmToken,
     }),
   });
+
+  const fcmData = await fcmResponse.json();
+
+  if (!fcmResponse.ok) {
+    console.error("FCM update failed:", fcmData);
+  } else {
+    console.log("FCM token updated successfully");
+  }
 }
+
       setTimeout(() => {
         router.push("/dashboard");
       }, 1000);
