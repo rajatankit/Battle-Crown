@@ -22,9 +22,13 @@ const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 const privateKey = getPrivateKey();
 
 if (!projectId || !clientEmail || !privateKey) {
-  throw new Error(
-    "Missing Firebase Admin env vars. Set FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY in .env.local"
-  );
+  console.error("Firebase Admin env check failed:", {
+    projectId: !!projectId,
+    clientEmail: !!clientEmail,
+    privateKey: !!privateKey,
+  });
+
+  throw new Error("Firebase Admin configuration is incomplete");
 }
 
 const app = !getApps().length
