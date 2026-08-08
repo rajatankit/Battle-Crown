@@ -80,6 +80,7 @@ export async function POST(req) {
 
 
     // Duplicate join protection
+    /*
     const existingJoin = await prisma.matchHistory.findFirst({
       where:{
         userId:user.id,
@@ -97,6 +98,7 @@ export async function POST(req) {
         {status:400}
       );
     }
+      */
 
 
     // Firebase tournament slot check
