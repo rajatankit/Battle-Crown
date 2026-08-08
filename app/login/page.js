@@ -100,17 +100,20 @@ if (!fcmResponse.ok) {
       const user = userCredential.user;
 
       // 2. Save user to Neon Database via API Route
-      const dbResponse = await fetch("/api/user/register", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          uid: user.uid,
-          email: user.email,
-          name: "Player",
-        }),
-      });
+      const idToken = await user.getIdToken();
+
+const dbResponse = await fetch("/api/user/register", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${idToken}`,
+  },
+  body: JSON.stringify({
+    uid: user.uid,
+    email: user.email,
+    name: "Player",
+  }),
+});
 
       const dbData = await dbResponse.json();
 

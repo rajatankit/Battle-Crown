@@ -6,7 +6,7 @@ async function getVerifiedUser(request) {
   const authHeader = request.headers.get("authorization") || "";
 
   const idToken = authHeader.startsWith("Bearer ")
-    ? authHeader.slice(7)
+    ? authHeader.slice(7).trim()
     : null;
 
   if (!idToken) return null;
@@ -18,14 +18,15 @@ async function getVerifiedUser(request) {
       uid: decoded.uid,
       email: decoded.email || null,
     };
-  } catch (err) {
-    console.error("Token verification failed:", err.message);
+  } catch (error) {
+    console.error("Token verification failed:", error.message);
     return null;
   }
 }
 
 export async function POST(request) {
   try {
+    // Firebase token verify
     const firebaseUser = await getVerifiedUser(request);
 
     if (!firebaseUser) {
@@ -39,77 +40,130 @@ export async function POST(request) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const fcmToken = body.fcmToken?.toString().trim();
 
-    if (!fcmToken) {
+    const email =
+      firebaseUser.email ||
+      body.email?.toString().trim().toLowerCase();
+
+    const name =
+      body.name?.toString().trim() || "Player";
+
+    if (!email) {
       return NextResponse.json(
         {
           success: false,
-          error: "FCM Token is required",
+          error: "Email is required",
         },
         { status: 400 }
       );
     }
 
-    console.log("========== UPDATE FCM ==========");
+    console.log("========== USER REGISTRATION ==========");
     console.log("Firebase UID:", firebaseUser.uid);
-    console.log("Firebase Email:", firebaseUser.email);
-    console.log("FCM Token received:", !!fcmToken);
+    console.log("Firebase Email:", email);
 
-    // 1. First try exact Firebase UID
+    // Check whether this Firebase UID already exists
     let existingUser = await prisma.user.findUnique({
       where: {
         uid: firebaseUser.uid,
       },
     });
 
-    // 2. If UID doesn't match, try the verified Firebase email
-    // This handles users created before UID/database sync was fixed.
-    if (!existingUser && firebaseUser.email) {
-      existingUser = await prisma.user.findUnique({
-        where: {
-          email: firebaseUser.email,
+    if (existingUser) {
+      return NextResponse.json({
+        success: true,
+        message: "User already exists",
+        user: {
+          id: existingUser.id,
+          uid: existingUser.uid,
+          email: existingUser.email,
+          name: existingUser.name,
         },
       });
     }
 
-    if (!existingUser) {
-      console.log("User not found by UID or email");
+    // Check whether email already exists
+    const existingEmailUser = await prisma.user.findUnique({
+      where: {
+        email,
+      },
+    });
+
+    if (existingEmailUser) {
+      // If old database record has no Firebase UID,
+      // safely connect it to this Firebase account.
+      if (!existingEmailUser.uid) {
+        const updatedUser = await prisma.user.update({
+          where: {
+            id: existingEmailUser.id,
+          },
+          data: {
+            uid: firebaseUser.uid,
+            name: existingEmailUser.name || name,
+          },
+        });
+
+        return NextResponse.json({
+          success: true,
+          message: "Existing user linked successfully",
+          user: {
+            id: updatedUser.id,
+            uid: updatedUser.uid,
+            email: updatedUser.email,
+            name: updatedUser.name,
+          },
+        });
+      }
 
       return NextResponse.json(
         {
           success: false,
-          error: "User not found",
+          error: "An account with this email already exists",
         },
-        { status: 404 }
+        { status: 409 }
       );
     }
 
-    // Update only the FCM token.
-    // We don't change the stored UID automatically.
-    const updatedUser = await prisma.user.update({
-      where: {
-        uid: existingUser.uid,
-      },
+    // Create new database user
+    const newUser = await prisma.user.create({
       data: {
-        fcmToken,
+        uid: firebaseUser.uid,
+        email,
+        name,
+
+        // Explicit defaults for clarity
+        depositWallet: 0,
+        winningsWallet: 0,
+        crowns: 0,
+        matchesPlayed: 0,
+        level: 1,
+        protectionPoints: 5,
       },
     });
 
-    console.log("FCM Token Updated Successfully");
-    console.log("Database User UID:", existingUser.uid);
+    console.log("Database user created successfully");
+    console.log("Database ID:", newUser.id);
 
-    return NextResponse.json({
-      success: true,
-      message: "FCM Token Updated Successfully",
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        message: "User created successfully",
+        user: {
+          id: newUser.id,
+          uid: newUser.uid,
+          email: newUser.email,
+          name: newUser.name,
+        },
+      },
+      { status: 201 }
+    );
   } catch (error) {
-    console.error("UPDATE FCM ERROR:", error);
+    console.error("USER REGISTRATION ERROR:", error);
 
     return NextResponse.json(
       {
         success: false,
-        error: error.message || "Internal Server Error",
+        error: error.message || "Failed to create user",
       },
       { status: 500 }
     );
