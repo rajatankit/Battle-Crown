@@ -1,65 +1,117 @@
 import { NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../../../lib/prisma";
+import { adminAuth } from "../../../lib/firebase-admin";
 
-const prisma = new PrismaClient();
+async function getVerifiedUser(request) {
+  const authHeader = request.headers.get("authorization") || "";
+
+  const idToken = authHeader.startsWith("Bearer ")
+    ? authHeader.slice(7)
+    : null;
+
+  if (!idToken) return null;
+
+  try {
+    const decoded = await adminAuth.verifyIdToken(idToken);
+
+    return {
+      uid: decoded.uid,
+      email: decoded.email || null,
+    };
+  } catch (err) {
+    console.error("Token verification failed:", err.message);
+    return null;
+  }
+}
 
 export async function POST(request) {
   try {
+    const firebaseUser = await getVerifiedUser(request);
+
+    if (!firebaseUser) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Unauthorized: invalid or missing auth token",
+        },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json().catch(() => ({}));
-    const { uid, email, name } = body;
+    const fcmToken = body.fcmToken?.toString().trim();
 
-    if (!email || !uid) {
+    if (!fcmToken) {
       return NextResponse.json(
-        { success: false, error: "Email and UID are required" },
-        { status: 400, headers: { "Content-Type": "application/json" } }
+        {
+          success: false,
+          error: "FCM Token is required",
+        },
+        { status: 400 }
       );
     }
 
-    // 1. Pehle check karo ki kya yeh Email ya UID pehle se database mein hai
-    const existingUser = await prisma.user.findFirst({
+    console.log("========== UPDATE FCM ==========");
+    console.log("Firebase UID:", firebaseUser.uid);
+    console.log("Firebase Email:", firebaseUser.email);
+    console.log("FCM Token received:", !!fcmToken);
+
+    // 1. First try exact Firebase UID
+    let existingUser = await prisma.user.findUnique({
       where: {
-        OR: [
-          { uid: String(uid) },
-          { email: email }
-        ]
-      },
-    }).catch(() => null);
-    
-
-    if (existingUser) {
-      return NextResponse.json(
-        { success: true, user: existingUser },
-        { headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-
-console.log("UID:", uid);
-console.log("EMAIL:", email);
-console.log("EXISTING USER:", existingUser);
-
-
-    // 2. Agar naya user hai, toh bilkul fresh record 0 balance ke sath create karo
-    const newUser = await prisma.user.create({
-      data: {
-        uid: String(uid),
-        email,
-        name: name || email.split('@')[0],  // agar naam na ho to email ka phela hissa naam ban jayega jisse "player" na aaye
-        depositWallet: 0,     // 👈 Naye user ke liye 0 kar diya
-        winningsWallet: 0,    // 👈 0
-        crowns: 0,            // 👈 0 crowns
+        uid: firebaseUser.uid,
       },
     });
 
-    return NextResponse.json(
-      { success: true, user: newUser },
-      { headers: { "Content-Type": "application/json" } }
-    );
+    // 2. If UID doesn't match, try the verified Firebase email
+    // This handles users created before UID/database sync was fixed.
+    if (!existingUser && firebaseUser.email) {
+      existingUser = await prisma.user.findUnique({
+        where: {
+          email: firebaseUser.email,
+        },
+      });
+    }
+
+    if (!existingUser) {
+      console.log("User not found by UID or email");
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: "User not found",
+        },
+        { status: 404 }
+      );
+    }
+
+    // Update only the FCM token.
+    // We don't change the stored UID automatically.
+    const updatedUser = await prisma.user.update({
+      where: {
+        uid: existingUser.uid,
+      },
+      data: {
+        fcmToken,
+      },
+    });
+
+    console.log("FCM Token Updated Successfully");
+    console.log("Database User UID:", existingUser.uid);
+
+    return NextResponse.json({
+      success: true,
+      message: "FCM Token Updated Successfully",
+    });
   } catch (error) {
-    console.error("API ERROR:", error);
+    console.error("UPDATE FCM ERROR:", error);
+
     return NextResponse.json(
-      { success: false, error: error.message || "Internal Server Error" },
-      { status: 500, headers: { "Content-Type": "application/json" } }
+      {
+        success: false,
+        error: error.message || "Internal Server Error",
+      },
+      { status: 500 }
     );
   }
 }
