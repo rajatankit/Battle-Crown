@@ -54,13 +54,13 @@ if (fcmToken) {
     }),
   });
 
-  const fcmData = await fcmResponse.json();
+  const fcmText = await fcmResponse.text();
 
-  if (!fcmResponse.ok) {
-    console.error("FCM update failed:", fcmData);
-  } else {
-    console.log("FCM token updated successfully");
-  }
+if (!fcmResponse.ok) {
+  console.error("FCM update failed:", fcmResponse.status, fcmText);
+} else {
+  console.log("FCM token updated successfully:", fcmText);
+}
 }
 
       setTimeout(() => {
