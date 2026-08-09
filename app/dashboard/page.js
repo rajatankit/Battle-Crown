@@ -296,6 +296,18 @@ useEffect(() => {
   return () => unsubscribe();
 }, []);
 
+// ─── Auto-refresh wallet/level every 15 seconds — no manual refresh needed ──
+useEffect(() => {
+  if (!firebaseUser) return;
+
+  const interval = setInterval(() => {
+    refreshUserProfile(firebaseUser.uid, firebaseUser.email, firebaseUser.displayName);
+  }, 15000); // har 15 second
+
+  return () => clearInterval(interval);
+}, [firebaseUser]);
+
+
   // ─── Recompute level whenever matchesPlayed changes ────────────────────────
   useEffect(() => {
     const derivedLevel = calculateLevelFromMatches(matchesPlayed);

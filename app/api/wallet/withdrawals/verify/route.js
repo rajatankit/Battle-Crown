@@ -54,6 +54,9 @@ export async function POST(req) {
       where: {
         id: parsedId,
       },
+      include: {
+        user: true,
+      },
     });
 
     if (!withdrawal) {
@@ -98,6 +101,15 @@ export async function POST(req) {
         updatedWithdrawal.status
       );
 
+      await prisma.notification.create({
+  data: {
+    type: "PERSONAL",
+    userId: withdrawal.user.uid,
+    title: "💰 Withdrawal Approved!",
+    message: `Your withdrawal of ₹${withdrawal.amount} has been sent to your UPI ID (${withdrawal.upiId}). Please check your bank/UPI app.`,
+  },
+});
+
       return NextResponse.json({
         success: true,
         message:
@@ -123,16 +135,20 @@ export async function POST(req) {
           });
 
           // Amount wallet me refund karo
-          await tx.user.update({
-            where: {
-              id: withdrawal.userId,
-            },
-            data: {
-              winningsWallet: {
-                increment: withdrawal.amount,
-              },
-            },
-          });
+         await tx.user.update({
+  where: { id: withdrawal.userId },
+  data: { winningsWallet: { increment: withdrawal.amount } },
+});
+
+await tx.notification.create({
+  data: {
+    type: "PERSONAL",
+    userId: withdrawal.user.uid,
+    title: "❌ Withdrawal Rejected",
+    message: `Your withdrawal request of ₹${withdrawal.amount} was rejected. The amount has been refunded to your Winnings Wallet.`,
+  },
+});
+
 
           return updated;
         }
