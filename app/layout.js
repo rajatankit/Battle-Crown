@@ -19,6 +19,12 @@ export const metadata = {
   description: "Join skill-based BGMI and Free Fire tournaments on Battle Crown.",
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+};
+
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
