@@ -73,12 +73,7 @@ export async function POST(request) {
       return NextResponse.json({
         success: true,
         message: "User already exists",
-        user: {
-          id: existingUser.id,
-          uid: existingUser.uid,
-          email: existingUser.email,
-          name: existingUser.name,
-        },
+        user: existingUser,
       });
     }
 
@@ -106,12 +101,7 @@ export async function POST(request) {
         return NextResponse.json({
           success: true,
           message: "Existing user linked successfully",
-          user: {
-            id: updatedUser.id,
-            uid: updatedUser.uid,
-            email: updatedUser.email,
-            name: updatedUser.name,
-          },
+          user: updatedUser,
         });
       }
 
