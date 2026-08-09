@@ -45,14 +45,21 @@ export default function DashboardPage() {
 
   const [tournaments, setTournaments] = useState([]);
 
-  // Live tournaments (Firestore realtime)
-  useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, "tournaments"), (snapshot) => {
-      const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setTournaments(list);
+ // Live tournaments (Firestore realtime)
+useEffect(() => {
+  const unsubscribe = onSnapshot(collection(db, "tournaments"), (snapshot) => {
+    const list = snapshot.docs.map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        ...data,
+        date: data.date?.toDate ? data.date.toDate().toISOString() : data.date,
+      };
     });
-    return () => unsubscribe();
-  }, []);
+    setTournaments(list);
+  });
+  return () => unsubscribe();
+}, []);
 
   // Join tournament (Firestore)
   const handleJoinTournament = async (tournament) => {
@@ -766,7 +773,7 @@ const handleRedeemTicket = async () => {
             <h3 className="font-black tracking-wide uppercase text-sm sm:text-base text-white">{tournament.title}</h3>
             <p className="text-[11px] text-gray-300 font-mono">Map: <span className="text-cyan-300 font-bold">{tournament.map}</span></p>
             <div className="mt-1.5">
-  <MatchCountdown matchTime={tournament.matchTime} />
+  <MatchCountdown matchTime={tournament.date} />
 </div>
           </div>
         </div>
