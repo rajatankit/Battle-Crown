@@ -88,71 +88,188 @@ export default function ProfileTab({
           {isEditingProfile ? "Save Profile ✓" : "Edit Profile ✍️"}
         </button>
 
-        {/* BGMI Profile */}
-        <div className="rounded-xl border border-gray-800/80 bg-black/35 overflow-hidden">
-          <div className="flex items-center justify-between px-3.5 py-2.5 bg-cyan-950/20 border-b border-gray-800/70">
-            <span className="text-[10px] font-black text-cyan-400 tracking-wider">🛡️ BGMI PROFILE</span>
-          </div>
-          <div className="p-3.5 space-y-3">
-            <div className="flex justify-between items-center gap-3 text-xs">
-              <span className="text-gray-500 uppercase text-[9px] font-bold">IGN</span>
-              {isEditingProfile ? (
-                <input
-                  value={tempBgmiIgn}
-                  onChange={(e) => setTempBgmiIgn(e.target.value)}
-                  className="bg-black/80 border border-cyan-600/70 rounded px-2.5 py-1 text-xs text-white w-40 outline-none focus:border-cyan-400"
-                />
-              ) : (
-                <span className="font-bold text-white truncate max-w-[160px]">{bgmiIgn}</span>
-              )}
-            </div>
-            <div className="flex justify-between items-center gap-3 text-xs">
-              <span className="text-gray-500 uppercase text-[9px] font-bold">UID</span>
-              {isEditingProfile ? (
-                <input
-                  value={tempBgmiUid}
-                  onChange={(e) => setTempBgmiUid(e.target.value)}
-                  className="bg-black/80 border border-cyan-600/70 rounded px-2.5 py-1 text-xs text-cyan-300 w-40 outline-none focus:border-cyan-400"
-                />
-              ) : (
-                <span className="font-bold text-cyan-300 font-mono">{bgmiUid}</span>
-              )}
-            </div>
-          </div>
+{/* BGMI Profile */}
+<div className="rounded-2xl border border-cyan-900/50 bg-[#0d141d]/95 overflow-hidden shadow-[0_8px_25px_rgba(0,0,0,0.25)]">
+
+  {/* Card Header */}
+  <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-cyan-950/40 via-cyan-950/15 to-transparent border-b border-cyan-900/40">
+    <div className="flex items-center gap-2.5">
+      <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/25 flex items-center justify-center">
+        <span className="text-base">🛡️</span>
+      </div>
+
+      <div>
+        <p className="text-[11px] font-black text-cyan-300 uppercase tracking-[0.14em]">
+          BGMI
+        </p>
+        <p className="text-[8px] text-gray-500 uppercase tracking-wider mt-0.5">
+          Player Profile
+        </p>
+      </div>
+    </div>
+
+    <span className="text-[8px] font-black uppercase tracking-widest text-cyan-500/70">
+      VERIFIED
+    </span>
+  </div>
+
+  {/* Details */}
+  <div className="p-3.5 space-y-2.5">
+
+    {/* IGN */}
+    <div className="flex items-center justify-between gap-3 bg-[#111a24] border border-gray-800/80 rounded-xl px-3.5 py-3">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <div className="w-7 h-7 rounded-md bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center">
+          <span className="text-[11px] text-cyan-400 font-black">ID</span>
         </div>
 
-        {/* Free Fire Profile */}
-        <div className="rounded-xl border border-gray-800/80 bg-black/35 overflow-hidden">
-          <div className="flex items-center justify-between px-3.5 py-2.5 bg-orange-950/15 border-b border-gray-800/70">
-            <span className="text-[10px] font-black text-orange-400 tracking-wider">🔥 FREE FIRE PROFILE</span>
-          </div>
-          <div className="p-3.5 space-y-3">
-            <div className="flex justify-between items-center gap-3 text-xs">
-              <span className="text-gray-500 uppercase text-[9px] font-bold">IGN</span>
-              {isEditingProfile ? (
-                <input
-                  value={tempFfIgn}
-                  onChange={(e) => setTempFfIgn(e.target.value)}
-                  className="bg-black/80 border border-orange-600/70 rounded px-2.5 py-1 text-xs text-white w-40 outline-none focus:border-orange-400"
-                />
-              ) : (
-                <span className="font-bold text-white truncate max-w-[160px]">{ffIgn}</span>
-              )}
-            </div>
-            <div className="flex justify-between items-center gap-3 text-xs">
-              <span className="text-gray-500 uppercase text-[9px] font-bold">UID</span>
-              {isEditingProfile ? (
-                <input
-                  value={tempFfUid}
-                  onChange={(e) => setTempFfUid(e.target.value)}
-                  className="bg-black/80 border border-orange-600/70 rounded px-2.5 py-1 text-xs text-orange-300 w-40 outline-none focus:border-orange-400"
-                />
-              ) : (
-                <span className="font-bold text-orange-300 font-mono">{ffUid}</span>
-              )}
-            </div>
-          </div>
+        <div>
+          <p className="text-[8px] text-gray-500 uppercase font-black tracking-widest">
+            In-Game Name
+          </p>
+          <p className="text-[9px] text-gray-600 uppercase tracking-wide mt-0.5">
+            IGN
+          </p>
         </div>
+      </div>
+
+      {isEditingProfile ? (
+        <input
+          value={tempBgmiIgn}
+          onChange={(e) => setTempBgmiIgn(e.target.value)}
+          className="bg-black/80 border border-cyan-600/70 rounded-lg px-3 py-2 text-xs font-bold text-white w-40 outline-none focus:border-cyan-400"
+        />
+      ) : (
+        <span className="font-black text-[14px] text-white tracking-wide truncate max-w-[175px]">
+          {bgmiIgn || "Not Added"}
+        </span>
+      )}
+    </div>
+
+    {/* UID */}
+    <div className="flex items-center justify-between gap-3 bg-[#111a24] border border-gray-800/80 rounded-xl px-3.5 py-3">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <div className="w-7 h-7 rounded-md bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center">
+          <span className="text-[10px] text-cyan-400 font-black">#</span>
+        </div>
+
+        <div>
+          <p className="text-[8px] text-gray-500 uppercase font-black tracking-widest">
+            Player UID
+          </p>
+          <p className="text-[9px] text-gray-600 uppercase tracking-wide mt-0.5">
+            Unique ID
+          </p>
+        </div>
+      </div>
+
+      {isEditingProfile ? (
+        <input
+          value={tempBgmiUid}
+          onChange={(e) => setTempBgmiUid(e.target.value)}
+          className="bg-black/80 border border-cyan-600/70 rounded-lg px-3 py-2 text-xs font-bold text-cyan-300 w-40 outline-none focus:border-cyan-400"
+        />
+      ) : (
+        <span className="font-black text-[13px] text-cyan-300 font-mono tracking-wider truncate max-w-[175px]">
+          {bgmiUid || "Not Added"}
+        </span>
+      )}
+    </div>
+
+  </div>
+</div>
+
+
+{/* Free Fire Profile */}
+<div className="rounded-2xl border border-orange-900/50 bg-[#0d141d]/95 overflow-hidden shadow-[0_8px_25px_rgba(0,0,0,0.25)]">
+
+  {/* Card Header */}
+  <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-orange-950/40 via-orange-950/15 to-transparent border-b border-orange-900/40">
+    <div className="flex items-center gap-2.5">
+      <div className="w-8 h-8 rounded-lg bg-orange-500/10 border border-orange-500/25 flex items-center justify-center">
+        <span className="text-base">🔥</span>
+      </div>
+
+      <div>
+        <p className="text-[11px] font-black text-orange-300 uppercase tracking-[0.14em]">
+          FREE FIRE
+        </p>
+        <p className="text-[8px] text-gray-500 uppercase tracking-wider mt-0.5">
+          Player Profile
+        </p>
+      </div>
+    </div>
+
+    <span className="text-[8px] font-black uppercase tracking-widest text-orange-500/70">
+      VERIFIED
+    </span>
+  </div>
+
+  {/* Details */}
+  <div className="p-3.5 space-y-2.5">
+
+    {/* IGN */}
+    <div className="flex items-center justify-between gap-3 bg-[#111a24] border border-gray-800/80 rounded-xl px-3.5 py-3">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <div className="w-7 h-7 rounded-md bg-orange-500/10 border border-orange-500/20 flex items-center justify-center">
+          <span className="text-[11px] text-orange-400 font-black">ID</span>
+        </div>
+
+        <div>
+          <p className="text-[8px] text-gray-500 uppercase font-black tracking-widest">
+            In-Game Name
+          </p>
+          <p className="text-[9px] text-gray-600 uppercase tracking-wide mt-0.5">
+            IGN
+          </p>
+        </div>
+      </div>
+
+      {isEditingProfile ? (
+        <input
+          value={tempFfIgn}
+          onChange={(e) => setTempFfIgn(e.target.value)}
+          className="bg-black/80 border border-orange-600/70 rounded-lg px-3 py-2 text-xs font-bold text-white w-40 outline-none focus:border-orange-400"
+        />
+      ) : (
+        <span className="font-black text-[14px] text-white tracking-wide truncate max-w-[175px]">
+          {ffIgn || "Not Added"}
+        </span>
+      )}
+    </div>
+
+    {/* UID */}
+    <div className="flex items-center justify-between gap-3 bg-[#111a24] border border-gray-800/80 rounded-xl px-3.5 py-3">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <div className="w-7 h-7 rounded-md bg-orange-500/10 border border-orange-500/20 flex items-center justify-center">
+          <span className="text-[10px] text-orange-400 font-black">#</span>
+        </div>
+
+        <div>
+          <p className="text-[8px] text-gray-500 uppercase font-black tracking-widest">
+            Player UID
+          </p>
+          <p className="text-[9px] text-gray-600 uppercase tracking-wide mt-0.5">
+            Unique ID
+          </p>
+        </div>
+      </div>
+
+      {isEditingProfile ? (
+        <input
+          value={tempFfUid}
+          onChange={(e) => setTempFfUid(e.target.value)}
+          className="bg-black/80 border border-orange-600/70 rounded-lg px-3 py-2 text-xs font-bold text-orange-300 w-40 outline-none focus:border-orange-400"
+        />
+      ) : (
+        <span className="font-black text-[13px] text-orange-300 font-mono tracking-wider truncate max-w-[175px]">
+          {ffUid || "Not Added"}
+        </span>
+      )}
+    </div>
+
+  </div>
+</div>
 
         {/* Badges */}
         <div

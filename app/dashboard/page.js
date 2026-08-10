@@ -570,6 +570,7 @@ export default function DashboardPage() {
           playerLevel={playerLevel}
           protectionPoints={protectionPoints}
           crowns={crowns}
+          tournaments={tournaments}
           liveTournament={tournaments.find((t) => t.status === "live") || null}
           startingSoon={tournaments.slice(0, 2)}
           matchesTowardNext={matchesTowardNext}

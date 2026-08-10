@@ -66,12 +66,27 @@ export default function HomeTab({
 
   // Normalize to a list so the hero can rotate when there's more than one
   // live tournament, while staying identical in behavior when there's just one.
-  const liveList = useMemo(() => {
-    if (Array.isArray(liveTournaments) && liveTournaments.length > 0) {
-      return liveTournaments;
+ const liveList = useMemo(() => {
+  // Prefer the full tournaments list and automatically pick
+  // currently live tournaments from both BGMI and Free Fire.
+  if (Array.isArray(tournaments) && tournaments.length > 0) {
+    const liveFromAll = tournaments.filter(
+      (t) => t.status === "live"
+    );
+
+    if (liveFromAll.length > 0) {
+      return liveFromAll;
     }
-    return liveTournament ? [liveTournament] : [];
-  }, [liveTournaments, liveTournament]);
+  }
+
+  // Backward-compatible fallback:
+  // existing liveTournaments prop still works.
+  if (Array.isArray(liveTournaments) && liveTournaments.length > 0) {
+    return liveTournaments;
+  }
+
+  return liveTournament ? [liveTournament] : [];
+}, [tournaments, liveTournaments, liveTournament]);
 
   const [heroIndex, setHeroIndex] = useState(0);
 
@@ -100,20 +115,53 @@ export default function HomeTab({
   return (
     <div className="min-h-screen bg-[#0b0f17] text-white font-mono pb-24">
       {/* ── Top bar ─────────────────────────────────────────────── */}
-      <header className="flex items-start justify-between px-4 pt-5 pb-3">
-        <div>
-          <span className="text-lg font-black italic tracking-tight">
-            BATTLE <span className="text-cyan-400">CROWN</span>
-          </span>
-          {/* Tagline strip — red badge directly under the logo */}
-          <div className="mt-1 inline-flex items-center bg-red-600 rounded px-2 py-0.5">
-            <span className="text-white text-[9px] font-bold uppercase tracking-wider">
-              Dual Esports Arena 🎮
-            </span>
-          </div>
-        </div>
-        <NotificationBell />
-      </header>
+     {/* ── Top bar ─────────────────────────────────────────────── */}
+<header className="flex items-start justify-between px-4 pt-5 pb-3">
+  <div className="flex flex-col">
+
+    {/* Battle Crown Logo */}
+    <div className="flex items-baseline leading-none">
+      <span className="text-[20px] font-black italic tracking-[-0.04em] text-white">
+        BATTLE
+      </span>
+
+      <span className="text-[20px] font-black italic tracking-[-0.04em] text-cyan-400 ml-1.5">
+        CROWN
+      </span>
+    </div>
+
+    {/* Professional Arena Badge */}
+    <div className="mt-2 flex items-center">
+      <div
+        className="
+          inline-flex items-center gap-1.5
+          px-2.5 py-1
+          rounded-md
+          bg-[#111925]
+          border border-red-500/30
+          shadow-[0_4px_15px_rgba(0,0,0,0.25)]
+        "
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_7px_rgba(239,68,68,0.8)]" />
+
+        <span className="text-[9px] font-black uppercase tracking-[0.16em] text-gray-200">
+          DUAL
+        </span>
+
+        <span className="text-[9px] font-black uppercase tracking-[0.16em] text-red-400">
+          ESPORTS
+        </span>
+
+        <span className="text-[9px] font-black uppercase tracking-[0.16em] text-gray-400">
+          ARENA
+        </span>
+      </div>
+    </div>
+
+  </div>
+
+  <NotificationBell />
+</header>
 
       {/* ── Greeting card ───────────────────────────────────────── */}
       <div className="px-4 mb-4">
@@ -144,57 +192,131 @@ export default function HomeTab({
       </div>
 
       {/* ── Live tournament hero (auto-rotates every 3s when there's more than one) ── */}
-      {activeLive && (
-        <div className="px-4 mb-6">
-          <div
-            key={heroIndex}
-            onClick={() => onJoin(activeLive)}
-            className="relative rounded-xl overflow-hidden border border-red-600/50 shadow-lg shadow-red-950/40 cursor-pointer h-40 animate-[fadeIn_0.4s_ease]"
-          >
-            {liveBg && (
-              <img
-                src={liveBg}
-                alt={activeLive.title}
-                className="absolute inset-0 w-full h-full object-cover"
-              />
-            )}
-            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/10" />
+    {/* ── Live tournament hero — auto swipe every 3s ── */}
+{liveList.length > 0 && (
+  <div className="px-4 mb-6">
 
-            <span className="absolute top-3 left-3 flex items-center gap-1 bg-red-600 text-white text-[10px] font-black uppercase px-2 py-0.5 rounded animate-pulse">
-              🔴 Live Now · {isFreeFireEntry(activeLive) ? "Free Fire" : "BGMI"}
-            </span>
+    {/* Slider viewport */}
+    <div className="relative overflow-hidden rounded-xl">
 
-            <div className="absolute bottom-3 left-3 right-3">
-              <h3 className="text-base font-black uppercase text-white">{activeLive.title}</h3>
-              <div className="flex items-center gap-4 mt-1 text-[11px]">
-                <span className="text-yellow-400 font-bold">
-                  ₹{activeLive.firstPrize || activeLive.prizePool || 0} Prize Pool
-                </span>
-                <span className="text-gray-300">
-                  {activeLive.joinedCount || 0} / {activeLive.maxSlots || 100} Players
-                </span>
-              </div>
-              <button className="mt-2 bg-cyan-400 hover:bg-cyan-300 text-black text-[11px] font-black uppercase px-4 py-1.5 rounded">
-                Join Now →
-              </button>
-            </div>
-          </div>
+      {/* Slider track */}
+      <div
+        className="flex transition-transform duration-700 ease-in-out"
+        style={{
+          transform: `translateX(-${heroIndex * 100}%)`,
+        }}
+      >
+        {liveList.map((tournament, index) => {
+          const isFF = isFreeFireEntry(tournament);
 
-          {/* Dot indicators — only shown when there's actually more than one live match to rotate through */}
-          {liveList.length > 1 && (
-            <div className="flex justify-center gap-1.5 mt-2">
-              {liveList.map((_, i) => (
-                <span
-                  key={i}
-                  className={`h-1.5 rounded-full transition-all ${
-                    i === heroIndex ? "w-4 bg-cyan-400" : "w-1.5 bg-gray-700"
-                  }`}
+          const tournamentBg =
+            tournament?.slides?.[0] ||
+            (isFF
+              ? GAME_BACKGROUNDS.ff
+              : GAME_BACKGROUNDS.bgmi);
+
+          return (
+            <div
+              key={tournament.id || index}
+              className="relative min-w-full h-40 overflow-hidden rounded-xl border border-red-600/50 shadow-lg shadow-red-950/40 cursor-pointer"
+              onClick={() => onJoin(tournament)}
+            >
+
+              {/* Background */}
+              {tournamentBg && (
+                <img
+                  src={tournamentBg}
+                  alt={tournament.title || "Live Tournament"}
+                  className="absolute inset-0 w-full h-full object-cover"
                 />
-              ))}
+              )}
+
+              {/* Dark cinematic overlay */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/10" />
+
+              {/* Game + Live badge */}
+              <div className="absolute top-3 left-3 flex items-center gap-1.5">
+
+                <span className="flex items-center gap-1 bg-red-600 text-white text-[10px] font-black uppercase px-2 py-0.5 rounded animate-pulse">
+                  🔴 Live Now
+                </span>
+
+                <span
+                  className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${
+                    isFF
+                      ? "bg-orange-950/90 text-orange-300 border-orange-700/60"
+                      : "bg-cyan-950/90 text-cyan-300 border-cyan-700/60"
+                  }`}
+                >
+                  {isFF ? "🔥 Free Fire" : "🛡️ BGMI"}
+                </span>
+
+              </div>
+
+              {/* Tournament content */}
+              <div className="absolute bottom-3 left-3 right-3">
+
+                <h3 className="text-base font-black uppercase text-white truncate">
+                  {tournament.title}
+                </h3>
+
+                <div className="flex items-center gap-4 mt-1 text-[11px]">
+
+                  <span className="text-yellow-400 font-bold">
+                    ₹
+                    {tournament.firstPrize ||
+                      tournament.prizePool ||
+                      0}{" "}
+                    Prize Pool
+                  </span>
+
+                  <span className="text-gray-300">
+                    {tournament.joinedCount || 0} /{" "}
+                    {tournament.maxSlots ||
+                      (isFF ? 50 : 100)}{" "}
+                    Players
+                  </span>
+
+                </div>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onJoin(tournament);
+                  }}
+                  className="mt-2 bg-cyan-400 hover:bg-cyan-300 text-black text-[11px] font-black uppercase px-4 py-1.5 rounded transition"
+                >
+                  Join Now →
+                </button>
+
+              </div>
+
             </div>
-          )}
-        </div>
-      )}
+          );
+        })}
+      </div>
+    </div>
+
+    {/* Slide indicators */}
+    {liveList.length > 1 && (
+      <div className="flex justify-center items-center gap-1.5 mt-2">
+
+        {liveList.map((tournament, i) => (
+          <span
+            key={tournament.id || i}
+            className={`h-1.5 rounded-full transition-all duration-500 ${
+              i === heroIndex
+                ? "w-5 bg-cyan-400"
+                : "w-1.5 bg-gray-700"
+            }`}
+          />
+        ))}
+
+      </div>
+    )}
+
+  </div>
+)}
 
       {/* ── Choose your battle ──────────────────────────────────── */}
       <div className="px-4 mb-6">
