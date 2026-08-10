@@ -80,6 +80,36 @@ export default function HomeTab({
     }
   }
 
+  const liveGameCounts = useMemo(() => {
+  const counts = {
+    bgmi: 0,
+    ff: 0,
+  };
+
+  if (!Array.isArray(tournaments)) {
+    return counts;
+  }
+
+  tournaments.forEach((t) => {
+    if (t.status !== "live") return;
+
+    const name = (
+      t.game ||
+      t.gameType ||
+      t.title ||
+      ""
+    ).toLowerCase();
+
+    if (name.includes("free") || name.includes("ff")) {
+      counts.ff += 1;
+    } else {
+      counts.bgmi += 1;
+    }
+  });
+
+  return counts;
+}, [tournaments]);
+
   // Backward-compatible fallback:
   // existing liveTournaments prop still works.
   if (Array.isArray(liveTournaments) && liveTournaments.length > 0) {
@@ -104,6 +134,36 @@ export default function HomeTab({
   }, [liveList.length]);
 
   const activeLive = liveList[heroIndex] || null;
+
+  const liveGameCounts = useMemo(() => {
+  const counts = {
+    bgmi: 0,
+    ff: 0,
+  };
+
+  if (!Array.isArray(tournaments)) {
+    return counts;
+  }
+
+  tournaments.forEach((t) => {
+    if (t.status !== "live") return;
+
+    const name = (
+      t.game ||
+      t.gameType ||
+      t.title ||
+      ""
+    ).toLowerCase();
+
+    if (name.includes("free") || name.includes("ff")) {
+      counts.ff += 1;
+    } else {
+      counts.bgmi += 1;
+    }
+  });
+
+  return counts;
+}, [tournaments]);
 
   const liveBg =
     activeLive?.slides?.[0] ||
@@ -345,7 +405,7 @@ export default function HomeTab({
               <div className="absolute inset-0 bg-gradient-to-t from-[#0b0f17] via-[#0b0f17]/70 to-[#0b0f17]/10" />
               <div className="relative z-10 p-3 h-full flex flex-col justify-end">
                 <p className="text-lg font-black text-white leading-none">
-                  {bgmiCount} <span className="text-[10px] font-bold text-gray-300 uppercase">Live Now</span>
+                  {liveGameCounts.bgmi} <span className="text-[10px] font-bold text-gray-300 uppercase">Live Now</span>
                 </p>
                 <span className="text-[10px] font-bold text-cyan-300 mt-1">Play Now →</span>
               </div>
@@ -372,7 +432,7 @@ export default function HomeTab({
               <div className="absolute inset-0 bg-gradient-to-t from-[#0b0f17] via-[#0b0f17]/70 to-[#0b0f17]/10" />
               <div className="relative z-10 p-3 h-full flex flex-col justify-end">
                 <p className="text-lg font-black text-white leading-none">
-                  {ffCount} <span className="text-[10px] font-bold text-gray-300 uppercase">Live Now</span>
+                  {liveGameCounts.ff} <span className="text-[10px] font-bold text-gray-300 uppercase">Live Now</span>
                 </p>
                 <span className="text-[10px] font-bold text-orange-300 mt-1">Play Now →</span>
               </div>
