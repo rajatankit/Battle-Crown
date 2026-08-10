@@ -41,6 +41,7 @@ export default function HomeTab({
   playerLevel = 1,
   protectionPoints = 5,
   crowns = 0,
+  tournaments = [],
   liveTournament = null,
   liveTournaments = null,
   startingSoon = [],
