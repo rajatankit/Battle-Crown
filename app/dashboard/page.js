@@ -570,38 +570,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Floating quick-access buttons — About / Support / Match History */}
-      <div className="fixed top-4 right-4 z-40 flex gap-2">
-        <button
-          onClick={() => setIsAboutModalOpen(true)}
-          title="About App"
-          className="w-9 h-9 bg-[#111824]/90 border border-cyan-500/30 text-cyan-400 rounded-lg flex items-center justify-center cursor-pointer hover:border-cyan-400 hover:bg-cyan-950/50 transition-all"
-        >
-          ℹ️
-        </button>
-        <button
-          onClick={() => setIsSupportModalOpen(true)}
-          title="Support"
-          className="w-9 h-9 bg-[#111824]/90 border border-yellow-500/30 text-yellow-400 rounded-lg flex items-center justify-center cursor-pointer hover:border-yellow-400 hover:bg-yellow-950/40 transition-all"
-        >
-          🎧
-        </button>
-        <button
-          onClick={() => setIsMatchHistoryOpen(true)}
-          title="Match History"
-          className="w-9 h-9 bg-[#111824]/90 border border-gray-600/40 text-gray-300 rounded-lg flex items-center justify-center cursor-pointer hover:border-gray-400 hover:bg-black/60 transition-all"
-        >
-          📋
-        </button>
-      </div>
-
-      <button
-  onClick={() => setIsTransactionHistoryOpen(true)}
-  title="Transaction History"
-  className="w-9 h-9 bg-[#111824]/90 border border-green-500/30 text-green-400 rounded-lg flex items-center justify-center cursor-pointer hover:border-green-400 hover:bg-green-950/40 transition-all"
->
-  💳
-</button>
+     
 
       {/* ─── Active Tab ──────────────────────────────────────────────────────── */}
       {activeTab === "home" && (
@@ -622,6 +591,8 @@ export default function DashboardPage() {
           bgmiCount={tournaments.filter((t) => t.game?.toLowerCase().includes("bgmi")).length}
           ffCount={tournaments.filter((t) => t.game?.toLowerCase().includes("free")).length}
           onJoin={handleOpenJoinFlow}
+          onAboutClick={() => setIsAboutModalOpen(true)}
+          onSupportClick={() => setIsSupportModalOpen(true)}
           onNavigate={handleNavigate}
           activeTab={activeTab}
         />
@@ -635,6 +606,7 @@ export default function DashboardPage() {
           onJoin={handleOpenJoinFlow}
           onNavigate={handleNavigate}
           activeTab={activeTab}
+          onMatchHistoryClick={() => setIsMatchHistoryOpen(true)}
         />
       )}
 
@@ -650,6 +622,7 @@ export default function DashboardPage() {
           transactions={transacions}
           onNavigate={handleNavigate}
           activeTab={activeTab}
+          onTransactionHistoryClick={() => setIsTransactionHistoryOpen(true)}
         />
       )}
 

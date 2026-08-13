@@ -133,6 +133,7 @@ export default function BattlesTab({
   onJoin = () => {},
   onNavigate = () => {},
   activeTab = "battles",
+  onMatchHistoryClick = () => {},
 }) {
   const [statusFilter, setStatusFilter] = useState("all");
 
@@ -159,9 +160,17 @@ export default function BattlesTab({
     <div className="min-h-screen bg-[#0b0f17] text-white font-mono pb-24">
       {/* Top bar */}
       <header className="flex items-center justify-between px-4 pt-5 pb-3">
-        <span className="text-lg font-black italic tracking-tight">
-          BATTLE <span className="text-cyan-400">CROWN</span>
-        </span>
+        <div className="flex items-center gap-2">
+  <img
+    src="/crown-logo.png"
+    alt="Battle Crown"
+    className="w-8 h-8 object-contain"
+  />
+
+  <span className="text-lg font-black italic tracking-tight">
+    BATTLE <span className="text-cyan-400">CROWN</span>
+  </span>
+</div>
       </header>
 
       {/* ── Game switch — segmented control with per-side shading ───────── */}
@@ -200,21 +209,31 @@ export default function BattlesTab({
         </div>
       </div>
 
-      {/* Status filter chips */}
-      <div className="px-4 mt-3 mb-1 flex gap-2 overflow-x-auto no-scrollbar">
-        {STATUS_FILTERS.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setStatusFilter(f.key)}
-            className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase border transition-colors ${
-              statusFilter === f.key
-                ? "bg-cyan-400 text-black border-cyan-400"
-                : "bg-[#161d2b] text-gray-400 border-gray-800"
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
+    {/* Status filter chips */}
+      <div className="px-4 mt-3 mb-1 flex items-center justify-between gap-2">
+        <div className="flex gap-2 overflow-x-auto no-scrollbar">
+          {STATUS_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setStatusFilter(f.key)}
+              className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase border transition-colors ${
+                statusFilter === f.key
+                  ? "bg-cyan-400 text-black border-cyan-400"
+                  : "bg-[#161d2b] text-gray-400 border-gray-800"
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        <button
+          onClick={onMatchHistoryClick}
+          title="Match History"
+          className="w-9 h-9 flex-shrink-0 bg-[#111824]/90 border border-gray-600/40 text-gray-300 rounded-lg flex items-center justify-center hover:border-gray-400 hover:bg-black/60 transition-all"
+        >
+          📋
+        </button>
       </div>
 
       {/* Live tournaments */}

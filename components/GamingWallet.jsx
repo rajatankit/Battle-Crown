@@ -239,10 +239,10 @@ useEffect(() => {
         </div>
 
         <div>
-          <p className="text-[9px] text-cyan-400 uppercase font-black tracking-wider">
+          <p className="text-[22px] text-cyan-400 uppercase font-black tracking-wider">
             Deposit Wallet
           </p>
-          <p className="text-[8px] text-gray-400 font-mono">
+          <p className="text-[11px] text-gray-400 font-mono">
             Entry Balance
           </p>
         </div>
@@ -254,7 +254,7 @@ useEffect(() => {
     </div>
 
     <div className="mb-4">
-      <span className="text-[10px] text-gray-300 font-mono">
+      <span className="text-[14px] text-gray-300 font-mono">
         AVAILABLE BALANCE
       </span>
 
@@ -262,7 +262,7 @@ useEffect(() => {
         <span className="text-xl sm:text-2xl font-black text-white">
           ₹{depositBalance}
         </span>
-        <span className="text-[9px] text-gray-400 mb-1">
+        <span className="text-[16px] text-gray-400 mb-1">
           INR
         </span>
       </div>
@@ -271,7 +271,7 @@ useEffect(() => {
     <button
       onClick={() => setShowDepositModal(true)}
       disabled={loading}
-      className="w-full py-2.5 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-black font-black text-[10px] uppercase tracking-wider transition-all shadow-lg shadow-cyan-500/20 disabled:opacity-50"
+      className="w-full py-2.5 rounded-lg bg-cyan-400 hover:bg-cyan-300 text-black font-black text-[16px] uppercase tracking-wider transition-all shadow-lg shadow-cyan-500/20 disabled:opacity-50"
     >
       + Add Money
     </button>
@@ -301,22 +301,22 @@ useEffect(() => {
         </div>
 
         <div>
-          <p className="text-[9px] text-emerald-400 uppercase font-black tracking-wider">
+          <p className="text-[22px] text-emerald-400 uppercase font-black tracking-wider">
             Winning Wallet
           </p>
-          <p className="text-[8px] text-gray-400 font-mono">
+          <p className="text-[14px] text-gray-400 font-mono">
             Tournament Earnings
           </p>
         </div>
       </div>
 
-      <span className="text-[8px] text-emerald-300 border border-emerald-400/40 bg-emerald-950/50 px-1.5 py-0.5 rounded">
+      <span className="text-[11px] text-emerald-300 border border-emerald-400/40 bg-emerald-950/50 px-1.5 py-0.5 rounded">
         PAYOUT
       </span>
     </div>
 
     <div className="mb-4">
-      <span className="text-[10px] text-gray-300 font-mono">
+      <span className="text-[14px] text-gray-300 font-mono">
         WITHDRAWABLE BALANCE
       </span>
 
@@ -325,7 +325,7 @@ useEffect(() => {
           ₹{winningBalance}
         </span>
 
-        <span className="text-[9px] text-gray-400 mb-1">
+        <span className="text-[16px] text-gray-400 mb-1">
           INR
         </span>
       </div>
@@ -334,7 +334,7 @@ useEffect(() => {
     <button
       onClick={openWithdrawModal}
       disabled={loading}
-      className="w-full py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-black text-[10px] uppercase tracking-wider transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+      className="w-full py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-black text-[16px] uppercase tracking-wider transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50"
     >
       {loading ? "Processing..." : "Withdraw Winnings"}
     </button>
@@ -378,11 +378,11 @@ useEffect(() => {
         </div>
 
         <div>
-          <p className="text-[9px] text-yellow-400 uppercase font-black tracking-[0.15em]">
+          <p className="text-[22px] text-yellow-400 uppercase font-black tracking-[0.15em]">
             Crown Rewards
           </p>
 
-          <p className="text-[8px] text-gray-400 font-mono mt-0.5">
+          <p className="text-[14px] text-gray-400 font-mono mt-0.5">
             Earn 1 Crown per match entry
           </p>
         </div>
@@ -393,7 +393,7 @@ useEffect(() => {
           {crownBalance}
         </p>
 
-        <p className="text-[8px] text-gray-400 uppercase font-mono">
+        <p className="text-[12px] text-gray-400 uppercase font-mono">
           Crowns
         </p>
       </div>
@@ -403,7 +403,7 @@ useEffect(() => {
     <div className="mt-4">
 
       <div className="flex justify-between mb-1.5">
-        <span className="text-[8px] text-gray-400 uppercase font-mono">
+        <span className="text-[12px] text-gray-400 uppercase font-mono">
           Redeem Progress
         </span>
 
@@ -496,6 +496,8 @@ useEffect(() => {
           const amount = Number(transaction.amount || 0);
 
           const type = String(transaction.type || "").toLowerCase();
+
+          console.log("TRANSACTION TYPE:", transaction.type, transaction.description);
 
           const isCredit =
             type.includes("deposit") ||

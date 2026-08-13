@@ -52,9 +52,17 @@ export default function ProfileTab({
     <div className="min-h-screen bg-[#0b0f17] text-white font-mono pb-24">
       {/* Top bar */}
       <header className="flex items-center justify-between px-4 pt-5 pb-3">
-        <span className="text-lg font-black italic tracking-tight">
-          BATTLE <span className="text-cyan-400">CROWN</span>
-        </span>
+       <div className="flex items-center gap-2">
+  <img
+    src="/crown-logo.png"
+    alt="Battle Crown"
+    className="w-8 h-8 object-contain"
+  />
+
+  <span className="text-lg font-black italic tracking-tight">
+    BATTLE <span className="text-cyan-400">CROWN</span>
+  </span>
+</div>
       </header>
 
       <div className="px-4 space-y-4">
@@ -62,10 +70,13 @@ export default function ProfileTab({
         <div className="flex items-center justify-between bg-[#0f141c]/90 border border-gray-800 rounded-xl p-4">
           <div className="flex items-center gap-3">
             <div className="w-14 h-14 rounded-full bg-gradient-to-br from-cyan-500 to-yellow-500 flex items-center justify-center text-xl font-black text-black flex-shrink-0">
-              {displayName.charAt(0).toUpperCase()}
-            </div>
-            <div>
-              <p className="text-sm font-bold text-white">{displayName}</p>
+  {(ffIgn || bgmiIgn || displayName || "Player").charAt(0).toUpperCase()}
+</div>
+
+<div>
+  <p className="text-sm font-bold text-white">
+    {ffIgn || bgmiIgn || displayName || "Player"}
+  </p>
               <p className="text-[10px] text-yellow-400 font-bold">
                 {currentTier?.name} {currentTier?.badge}
               </p>

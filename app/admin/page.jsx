@@ -33,6 +33,14 @@ const [matchLoading, setMatchLoading] = useState(false);
 const [matchProcessingId, setMatchProcessingId] = useState(null);
 const [matchError, setMatchError] = useState("");
 
+const [overviewMatches, setOverviewMatches] = useState([]);
+const [overviewWithdrawals, setOverviewWithdrawals] = useState([]);
+const [overviewLoading, setOverviewLoading] = useState(false);
+
+
+const [pendingMatchCount, setPendingMatchCount] = useState(0);
+const [pendingWithdrawalCount, setPendingWithdrawalCount] = useState(0);
+
 
 // ==========================================
 // LOAD PENDING MATCHES
@@ -58,6 +66,7 @@ const loadMatches = async () => {
       (Array.isArray(data) ? data : []);
 
     setMatches(list);
+    setPendingMatchCount(list.length);
 
     if (!res.ok) {
       setMatchError(
@@ -166,6 +175,7 @@ const loadWithdrawals = async () => {
     const data = await res.json();
 
     setWithdrawalRequests(data.requests || []);
+    setPendingWithdrawalCount((data.requests || []).length);
 
     if (!res.ok) {
       setWithdrawalError(
@@ -250,6 +260,57 @@ const handleWithdrawalAction = async (request, action) => {
   }
 };
 
+// ==========================================
+// LOAD OVERVIEW COUNTS
+// ==========================================
+
+const loadOverviewData = async () => {
+  setOverviewLoading(true);
+
+  try {
+    const [matchesRes, withdrawalsRes] =
+      await Promise.all([
+        fetch("/api/admin/pending-matches", {
+          headers: {
+            "x-admin-key":
+              process.env.NEXT_PUBLIC_ADMIN_SECRET_KEY,
+          },
+        }),
+
+        fetch("/api/admin/withdraw", {
+          headers: {
+            "x-admin-key":
+              process.env.NEXT_PUBLIC_ADMIN_SECRET_KEY,
+          },
+        }),
+      ]);
+
+    const matchesData = await matchesRes.json();
+    const withdrawalsData =
+      await withdrawalsRes.json();
+
+    const matchesList =
+      matchesData.matches ||
+      matchesData.data ||
+      (Array.isArray(matchesData)
+        ? matchesData
+        : []);
+
+    setOverviewMatches(matchesList);
+
+    setOverviewWithdrawals(
+      withdrawalsData.requests || []
+    );
+  } catch (error) {
+    console.error(
+      "Overview loading error:",
+      error
+    );
+  } finally {
+    setOverviewLoading(false);
+  }
+};
+
   // ==========================================
   // LOAD TOURNAMENTS
   // ==========================================
@@ -272,6 +333,12 @@ const handleWithdrawalAction = async (request, action) => {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+  if (activeTab === "overview") {
+    loadOverviewData();
+  }
+}, [activeTab]);
 
   // ==========================================
   // MANAGE TOURNAMENT
@@ -512,9 +579,10 @@ const handleWithdrawalAction = async (request, action) => {
                   Pending Matches
                 </p>
 
-                <p className="text-3xl font-bold text-cyan-400 mt-2">
-                  —
-                </p>
+               <p className="text-3xl font-bold text-cyan-400 mt-2">
+  {pendingMatchCount}
+</p>
+
 
               </div>
 
@@ -524,9 +592,9 @@ const handleWithdrawalAction = async (request, action) => {
                   Pending Withdrawals
                 </p>
 
-                <p className="text-3xl font-bold text-yellow-400 mt-2">
-                  —
-                </p>
+               , <p className="text-3xl font-bold text-yellow-400 mt-2">
+  {pendingWithdrawalCount}
+</p>
 
               </div>
 

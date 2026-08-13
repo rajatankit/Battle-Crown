@@ -54,6 +54,8 @@ export default function HomeTab({
   bgmiCount = 0,
   ffCount = 0,
   onJoin = () => {},
+  onAboutClick = () => {},
+  onSupportClick = () => {},
   onNavigate = () => {},
   activeTab = "home",
 }) {
@@ -157,16 +159,20 @@ export default function HomeTab({
 <header className="flex items-start justify-between px-4 pt-5 pb-3">
   <div className="flex flex-col">
 
-    {/* Battle Crown Logo */}
-    <div className="flex items-baseline leading-none">
-      <span className="text-[20px] font-black italic tracking-[-0.04em] text-white">
-        BATTLE
-      </span>
+    <div className="flex items-center gap-2">
+  <img
+    src="/crown-logo.png"
+    alt="Battle Crown"
+    className="w-8 h-8 sm:w-9 sm:h-9 object-contain"
+  />
 
-      <span className="text-[20px] font-black italic tracking-[-0.04em] text-cyan-400 ml-1.5">
-        CROWN
-      </span>
-    </div>
+  <h1 className="text-lg sm:text-xl font-black italic tracking-tight">
+    BATTLE{" "}
+    <span className="text-cyan-400">
+      CROWN
+    </span>
+  </h1>
+</div>
 
     {/* Professional Arena Badge */}
     <div className="mt-2 flex items-center">
@@ -198,8 +204,28 @@ export default function HomeTab({
 
   </div>
 
-  <NotificationBell />
+  <div className="flex items-center gap-2">
+    <button
+      onClick={onAboutClick}
+      title="About App"
+      className="w-9 h-9 bg-[#111824]/90 border border-cyan-500/30 text-cyan-400 rounded-lg flex items-center justify-center hover:border-cyan-400 hover:bg-cyan-950/50 transition-all"
+    >
+      ℹ️
+    </button>
+    <button
+      onClick={onSupportClick}
+      title="Support"
+      className="w-9 h-9 bg-[#111824]/90 border border-yellow-500/30 text-yellow-400 rounded-lg flex items-center justify-center hover:border-yellow-400 hover:bg-yellow-950/40 transition-all"
+    >
+      🎧
+    </button>
+    <NotificationBell />
+  </div>
 </header>
+
+ 
+
+
 
       {/* ── Greeting card ───────────────────────────────────────── */}
       <div className="px-4 mb-4">

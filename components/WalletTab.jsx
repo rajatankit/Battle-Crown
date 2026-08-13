@@ -4,8 +4,6 @@ import BottomNav from "./BottomNav";
 import GamingWallet from "./GamingWallet";
 
 export default function WalletTab({
-
-  
   depositWallet,
   setDepositWallet,
   winningsWallet,
@@ -17,6 +15,7 @@ export default function WalletTab({
   totalWithdrawn,
   onNavigate = () => {},
   activeTab = "wallet",
+  onTransactionHistoryClick = () => {},
 }) {
 
   const [transactions, setTransactions] = useState([]);
@@ -80,51 +79,65 @@ export default function WalletTab({
       {/* =========================================================
           HEADER
       ========================================================= */}
-      <header className="sticky top-0 z-30 px-4 pt-5 pb-4 border-b border-cyan-500/10 bg-[#050912]/75 backdrop-blur-xl">
+      {/* =========================================================
+    HEADER
+========================================================= */}
+<header className="sticky top-0 z-30 px-4 pt-5 pb-4 border-b border-cyan-500/10 bg-[#050912]/75 backdrop-blur-xl">
 
-        <div className="flex items-center justify-between">
+  <div className="flex items-center justify-between">
 
-          <div>
-            <p className="text-[9px] text-cyan-400/70 uppercase tracking-[0.28em] mb-1">
-              // PLAYER FINANCIAL HUB
-            </p>
+    <div className="flex items-center gap-2">
+      <img
+        src="/crown-logo.png"
+        alt="Battle Crown"
+        className="w-8 h-8 sm:w-9 sm:h-9 object-contain"
+      />
 
-            <h1 className="text-lg sm:text-xl font-black italic tracking-tight">
-              BATTLE{" "}
-              <span className="text-cyan-400">
-                CROWN
-              </span>
-            </h1>
-          </div>
+      <h1 className="text-lg sm:text-xl font-black italic tracking-tight">
+        BATTLE{" "}
+        <span className="text-cyan-400">
+          CROWN
+        </span>
+      </h1>
+    </div>
 
-          {/* Wallet status */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-cyan-400/20 bg-cyan-950/30">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-            <span className="text-[9px] font-bold text-cyan-300 uppercase tracking-wider">
-              Wallet Active
-            </span>
-          </div>
+    {/* Wallet status */}
+    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-cyan-400/20 bg-cyan-950/30">
+      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+      <span className="text-[9px] font-bold text-cyan-300 uppercase tracking-wider">
+        Wallet Active
+      </span>
+    </div>
 
-        </div>
-      </header>
+  </div>
+</header>
 
       {/* =========================================================
           MAIN WALLET CONTENT
       ========================================================= */}
       <main className="relative z-10 px-4 pt-5 space-y-5">
+{/* Page title */}
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-[10px] text-gray-500 uppercase tracking-[0.25em]">
+              Player Dashboard
+            </p>
 
-        {/* Page title */}
-        <div>
-          <p className="text-[10px] text-gray-500 uppercase tracking-[0.25em]">
-            Player Dashboard
-          </p>
+            <h2 className="text-xl font-black uppercase tracking-wider text-white mt-1">
+              Gaming Wallet
+            </h2>
+          </div>
 
-          <h2 className="text-xl font-black uppercase tracking-wider text-white mt-1">
-            Gaming Wallet
-          </h2>
-
-          <div className="mt-3 h-px bg-gradient-to-r from-cyan-400/70 via-cyan-400/20 to-transparent" />
+          <button
+            onClick={onTransactionHistoryClick}
+            title="Transaction History"
+            className="w-9 h-9 flex-shrink-0 bg-[#111824]/90 border border-green-500/30 text-green-400 rounded-lg flex items-center justify-center hover:border-green-400 hover:bg-green-950/40 transition-all"
+          >
+            💳
+          </button>
         </div>
+
+        <div className="h-px bg-gradient-to-r from-cyan-400/70 via-cyan-400/20 to-transparent" />
 
         {/* =====================================================
             EXISTING GAMING WALLET

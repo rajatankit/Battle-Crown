@@ -39,82 +39,76 @@ export default function SupportChat() {
   };
 
   return (
-    <div className="fixed bottom-5 right-5 z-50">
+
+    <div className="fixed bottom-24 right-4 sm:bottom-6 sm:right-5 z-50">
 
       {!isOpen ? (
-        <button
-          onClick={() => setIsOpen(true)}
-          aria-label="Open Support AI"
-          className="
-            group relative
-            flex items-center gap-2.5
-            px-4 py-2.5
-            rounded-full
-            bg-[#101722]/95
-            backdrop-blur-xl
-            border border-cyan-400/25
-            text-white
-            shadow-[0_8px_30px_rgba(0,0,0,0.45)]
-            transition-all duration-300
-            hover:border-cyan-400/60
-            hover:bg-[#141d2a]
-            hover:-translate-y-0.5
-            active:scale-95
-          "
-        >
-          {/* Soft glow */}
-          <span
-            className="
-              absolute inset-0 rounded-full
-              bg-cyan-400/5
-              blur-md
-              opacity-0
-              group-hover:opacity-100
-              transition-opacity
-            "
-          />
+       <button
+  onClick={() => setIsOpen(true)}
+  aria-label="Open Rovit AI"
+  title="Rovit AI"
+  className="
+    group relative
+    w-12 h-12
+    rounded-full
+    flex items-center justify-center
+    bg-[#101722]/95
+    backdrop-blur-xl
+    border border-cyan-400/30
+    text-cyan-300
+    shadow-[0_8px_30px_rgba(0,0,0,0.45)]
+    transition-all duration-300
+    hover:border-cyan-400/70
+    hover:bg-[#141d2a]
+    hover:text-cyan-200
+    hover:-translate-y-0.5
+    hover:shadow-[0_8px_30px_rgba(34,211,238,0.18)]
+    active:scale-95
+  "
+>
+  {/* Soft hover glow */}
+  <span
+    className="
+      absolute inset-0 rounded-full
+      bg-cyan-400/10
+      blur-md
+      opacity-0
+      group-hover:opacity-100
+      transition-opacity
+    "
+  />
 
-          {/* Professional AI icon */}
-          <span
-            className="
-              relative z-10
-              w-8 h-8
-              rounded-full
-              flex items-center justify-center
-              bg-[#182330]
-              border border-cyan-400/30
-              shadow-inner
-            "
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M7 10.5C7 7.462 9.462 5 12.5 5C15.538 5 18 7.462 18 10.5V13.5C18 16.538 15.538 19 12.5 19H10L7 21V17.2C6.37 16.25 6 15.12 6 13.9V10.5"
-                stroke="currentColor"
-                strokeWidth="1.7"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M9.5 11.5H9.51M12.5 11.5H12.51M15.5 11.5H15.51"
-                stroke="#22D3EE"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
-          </span>
+  {/* Message icon */}
+  <svg
+    className="relative z-10"
+    width="21"
+    height="21"
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path
+      d="M20 11.5C20 15.642 16.418 19 12 19C10.9 19 9.85 18.79 8.92 18.41L5 20L6.35 16.55C5.5 15.35 5 13.95 5 12.5C5 8.358 8.582 5 13 5C17.418 5 20 7.358 20 11.5Z"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+
+    <path
+      d="M9 12H9.01M12 12H12.01M15 12H15.01"
+      stroke="#22D3EE"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+  </svg>
 
           <span className="relative z-10 flex flex-col items-start leading-none">
             <span className="text-[11px] font-black tracking-wide">
-              SUPPORT AI
+            
             </span>
             <span className="text-[8px] text-gray-500 mt-1 tracking-wider uppercase">
-              Always Online
+             
             </span>
           </span>
 
@@ -139,26 +133,32 @@ export default function SupportChat() {
           <div className="bg-[#111925] px-4 py-3 flex justify-between items-center border-b border-gray-800">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-full bg-[#182330] border border-cyan-400/30 flex items-center justify-center">
-                <svg
-                  width="17"
-                  height="17"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    d="M7 10.5C7 7.462 9.462 5 12.5 5C15.538 5 18 7.462 18 10.5V13.5C18 16.538 15.538 19 12.5 19H10L7 21V17.2C6.37 16.25 6 15.12 6 13.9V10.5"
-                    stroke="#22D3EE"
-                    strokeWidth="1.7"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </div>
+  <svg
+    width="17"
+    height="17"
+    viewBox="0 0 24 24"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path
+      d="M20 11.5C20 15.642 16.418 19 12 19C10.7 19 9.48 18.7 8.4 18.15L4 20L5.3 16.1C4.48 14.82 4 13.2 4 11.5C4 7.358 7.582 4 12 4C16.418 4 20 7.358 20 11.5Z"
+      stroke="#22D3EE"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M8.5 11.5H8.51M12 11.5H12.01M15.5 11.5H15.51"
+      stroke="#22D3EE"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+  </svg>
+</div>
 
               <div>
                 <p className="font-black text-xs tracking-wide">
-                  SUPPORT AI
+                  ROVIT
                 </p>
                 <p className="text-[9px] text-emerald-400 mt-0.5">
                   ● Online
@@ -195,7 +195,7 @@ export default function SupportChat() {
 
             {loading && (
               <div className="text-gray-500 text-xs px-1">
-                Support AI is typing...
+                ROVIT AI is typing...
               </div>
             )}
           </div>
