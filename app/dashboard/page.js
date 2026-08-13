@@ -1322,7 +1322,7 @@ export default function DashboardPage() {
             </div>
             <div className="bg-black/50 p-3.5 border border-gray-800/80 rounded-lg space-y-2 text-xs font-mono">
               <p className="text-gray-300">💬 <strong>WhatsApp Support:</strong> +91 9034388712</p>
-              <p className="text-gray-300">✉️ <strong>Official Email:</strong> battlecrownsupport@gmail.com</p>
+              <p className="text-gray-300">📧 <strong>Official Email:</strong> battlecrownsupport@gmail.com</p>
               <p className="text-gray-300">📸 <strong>Instagram:</strong> @battle_crown_official_</p>
             </div>
             <div className="space-y-1.5">
