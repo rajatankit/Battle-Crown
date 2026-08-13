@@ -1,9 +1,11 @@
 "use client";
-
+import { useEffect, useState, useCallback } from "react";
 import BottomNav from "./BottomNav";
 import GamingWallet from "./GamingWallet";
 
 export default function WalletTab({
+
+  
   depositWallet,
   setDepositWallet,
   winningsWallet,
@@ -13,10 +15,36 @@ export default function WalletTab({
   userEmail,
   totalEarned,
   totalWithdrawn,
-  transactions = [],
   onNavigate = () => {},
   activeTab = "wallet",
 }) {
+
+  const [transactions, setTransactions] = useState([]);
+
+  const fetchTransactions = useCallback(async () => {
+    if (!userEmail) return;
+    try {
+      const res = await fetch(`/api/user/transactions?email=${encodeURIComponent(userEmail)}`);
+      const data = await res.json();
+      if (data.success) {
+        const mapped = data.transactions.map((tx) => ({
+          id: tx.id,
+          amount: tx.amount,
+          label: tx.type,
+          status: tx.type === "Withdrawal" ? "Pending" : "Success",
+          date: new Date(tx.createdAt).toLocaleString("en-IN", {
+            day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+          }),
+        }));
+        setTransactions(mapped);
+      }
+    } catch (err) {
+      console.error("Transactions fetch error:", err);
+    }
+  }, [userEmail]);
+
+  useEffect(() => { fetchTransactions(); }, [fetchTransactions]);
+  
   return (
     <div className="relative min-h-screen bg-[#050912] text-white font-mono pb-24 overflow-hidden">
 
@@ -123,6 +151,7 @@ export default function WalletTab({
             crowns={crowns}
             setCrowns={setCrowns}
             userEmail={userEmail}
+            onWalletChange={fetchTransactions}
           />
 
         </div>
@@ -206,130 +235,6 @@ export default function WalletTab({
           </section>
         )}
 
-        {/* =====================================================
-            RECENT TRANSACTIONS
-        ===================================================== */}
-        {transactions.length > 0 && (
-          <section className="
-            relative
-            overflow-hidden
-            rounded-2xl
-            border border-gray-800/80
-            bg-[#08101a]/85
-            backdrop-blur-xl
-          ">
-
-            {/* top cyan line */}
-            <div className="h-px bg-gradient-to-r from-transparent via-cyan-400/60 to-transparent" />
-
-            {/* Header */}
-            <div className="
-              flex
-              justify-between
-              items-center
-              px-4
-              py-4
-              border-b border-gray-800/70
-            ">
-
-              <div>
-                <p className="text-[9px] text-gray-500 uppercase tracking-[0.2em]">
-                  Wallet Activity
-                </p>
-
-                <h3 className="text-xs font-black text-gray-200 uppercase tracking-wider mt-1">
-                  Recent Transactions
-                </h3>
-              </div>
-
-              <button
-                type="button"
-                className="text-[9px] text-cyan-400 font-bold uppercase tracking-wider hover:text-cyan-300 transition"
-              >
-                View All →
-              </button>
-
-            </div>
-
-            {/* Transactions */}
-            <div className="divide-y divide-gray-800/60">
-
-              {transactions.slice(0, 6).map((tx) => {
-
-                const positive = tx.amount >= 0;
-
-                return (
-                  <div
-                    key={tx.id}
-                    className="
-                      flex
-                      items-center
-                      justify-between
-                      px-4
-                      py-3.5
-                      hover:bg-cyan-950/20
-                      transition
-                    "
-                  >
-
-                    <div className="flex items-center gap-3">
-
-                      {/* Transaction icon */}
-                      <div
-                        className={`
-                          w-8 h-8
-                          rounded-lg
-                          flex items-center justify-center
-                          border
-                          ${
-                            positive
-                              ? "bg-green-950/40 border-green-500/20 text-green-400"
-                              : "bg-red-950/40 border-red-500/20 text-red-400"
-                          }
-                        `}
-                      >
-                        {positive ? "↗" : "↘"}
-                      </div>
-
-                      <div>
-                        <p className="text-[10px] font-bold text-white">
-                          {tx.label}
-                        </p>
-
-                        <p className="text-[8px] text-gray-500 mt-0.5">
-                          {tx.date}
-                        </p>
-                      </div>
-
-                    </div>
-
-                    <div className="text-right">
-
-                      <p
-                        className={`text-xs font-black ${
-                          positive
-                            ? "text-green-400"
-                            : "text-red-400"
-                        }`}
-                      >
-                        {positive ? "+" : "-"}₹
-                        {Math.abs(tx.amount)}
-                      </p>
-
-                      <p className="text-[8px] text-gray-600 uppercase mt-0.5">
-                        {tx.status || "Success"}
-                      </p>
-
-                    </div>
-
-                  </div>
-                );
-              })}
-
-            </div>
-          </section>
-        )}
-
         {/* Bottom spacing */}
         <div className="h-6" />
 
@@ -341,7 +246,7 @@ export default function WalletTab({
       <BottomNav
         activeTab={activeTab}
         onNavigate={onNavigate}
-      />
+      /> 
 
     </div>
   );

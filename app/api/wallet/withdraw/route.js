@@ -73,21 +73,33 @@ export async function POST(request) {
       );
     }
 
-    const updatedUser = await prisma.user.update({
-      where: { email: email },
-      data: {
-        winningsWallet: user.winningsWallet - amount,
-      },
-    });
+   const result = await prisma.$transaction(async (tx) => {
+      const updatedUser = await tx.user.update({
+        where: { email: email },
+        data: {
+          winningsWallet: user.winningsWallet - amount,
+        },
+      });
 
-    // withdrawal request create 
-    const withdrawalRequest = await prisma.withdrawalRequest.create({
-      data: {
-        userId: user.id,
-        amount: amount,
-        upiId: user.upiId || body.upiId || "",
-        status: "Pending",
-      },
+      await tx.walletTransaction.create({
+        data: {
+          userId: user.id,
+          amount: -Number(amount),
+          type: "Withdrawal",
+          description: "Winnings Withdrawal - Pending Verification",
+        },
+      });
+
+      const withdrawalRequest = await tx.withdrawalRequest.create({
+        data: {
+          userId: user.id,
+          amount: amount,
+          upiId: user.upiId || body.upiId || "",
+          status: "Pending",
+        },
+      });
+
+      return { updatedUser, withdrawalRequest };
     });
 
     return NextResponse.json(

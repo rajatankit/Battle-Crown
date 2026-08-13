@@ -41,6 +41,10 @@ export default function HomeTab({
   playerLevel = 1,
   protectionPoints = 5,
   crowns = 0,
+  bgmiIgn="",
+  bgmiUid="",
+  ffIgn="",
+  ffUid="",
   tournaments = [],
   liveTournament = null,
   liveTournaments = null,
@@ -60,6 +64,13 @@ export default function HomeTab({
     return "Good Evening";
   }, []);
 
+  const greetingName = useMemo(() => {
+    if (bgmiIgn && ffIgn) return `${bgmiIgn} / ${ffIgn}`;
+    if (bgmiIgn) return bgmiIgn;
+    if (ffIgn) return ffIgn;
+    return "Player";
+  }, [bgmiIgn, ffIgn]);
+
   const progressPct = Math.min(
     (matchesTowardNext / Math.max(matchesNeededForNext, 1)) * 100,
     100
@@ -68,8 +79,6 @@ export default function HomeTab({
   // Normalize to a list so the hero can rotate when there's more than one
   // live tournament, while staying identical in behavior when there's just one.
  const liveList = useMemo(() => {
-  // Prefer the full tournaments list and automatically pick
-  // currently live tournaments from both BGMI and Free Fire.
   if (Array.isArray(tournaments) && tournaments.length > 0) {
     const liveFromAll = tournaments.filter(
       (t) => t.status === "live"
@@ -80,38 +89,6 @@ export default function HomeTab({
     }
   }
 
-  const liveGameCounts = useMemo(() => {
-  const counts = {
-    bgmi: 0,
-    ff: 0,
-  };
-
-  if (!Array.isArray(tournaments)) {
-    return counts;
-  }
-
-  tournaments.forEach((t) => {
-    if (t.status !== "live") return;
-
-    const name = (
-      t.game ||
-      t.gameType ||
-      t.title ||
-      ""
-    ).toLowerCase();
-
-    if (name.includes("free") || name.includes("ff")) {
-      counts.ff += 1;
-    } else {
-      counts.bgmi += 1;
-    }
-  });
-
-  return counts;
-}, [tournaments]);
-
-  // Backward-compatible fallback:
-  // existing liveTournaments prop still works.
   if (Array.isArray(liveTournaments) && liveTournaments.length > 0) {
     return liveTournaments;
   }
@@ -228,13 +205,13 @@ export default function HomeTab({
       <div className="px-4 mb-4">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-full bg-gradient-to-br from-cyan-500 to-yellow-500 flex items-center justify-center text-lg font-black text-black flex-shrink-0">
-            {displayName.charAt(0).toUpperCase()}
+            {greetingName.charAt(0).toUpperCase()}
           </div>
           <div>
             <p className="text-sm font-bold text-white">
-              {greeting}, {displayName} 👋
+              {greeting}, {greetingName} 👋
             </p>
-            <p className="text-[11px] text-gray-400">Ready for your next battle?</p>
+            <p className="text-[11px] text-gray-400">Ready for your next battle?🎮</p>
           </div>
         </div>
 
@@ -250,6 +227,22 @@ export default function HomeTab({
             👑 Crowns {crowns}
           </span>
         </div>
+
+        {(bgmiIgn || ffIgn) && (
+          <div className="flex flex-wrap gap-2 mt-2.5">
+            {bgmiIgn && (
+              <span className="flex items-center gap-1.5 bg-cyan-950/40 border border-cyan-700/50 text-cyan-300 text-[10px] font-bold px-2.5 py-1 rounded-full">
+                🛡️ <span className="text-gray-400">BGMI:</span> {bgmiIgn}
+              </span>
+            )}
+            {ffIgn && (
+              <span className="flex items-center gap-1.5 bg-orange-950/40 border border-orange-700/50 text-orange-300 text-[10px] font-bold px-2.5 py-1 rounded-full">
+                🔥 <span className="text-gray-400">FF:</span> {ffIgn}
+              </span>
+            )}
+          </div>
+        )}
+
       </div>
 
       {/* ── Live tournament hero (auto-rotates every 3s when there's more than one) ── */}

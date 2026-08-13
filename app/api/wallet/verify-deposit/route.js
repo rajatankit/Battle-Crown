@@ -12,18 +12,26 @@ export async function POST(req) {
     }
 
     // Prisma se user ka depositWallet update kar rahe hain
-    const updatedUser = await prisma.user.update({
-      where: { email: email },
-      data: {
-        depositWallet: {
-          increment: Number(amount),
-        },
-      },
-    });
+    const result = await prisma.$transaction(async (tx) => {
+  const updatedUser = await tx.user.update({
+    where: { email },
+    data: { depositWallet: { increment: Number(amount) } },
+  });
 
+  await tx.walletTransaction.create({
+    data: {
+      userId: updatedUser.id,
+      amount: Number(amount),
+      type: "Deposit",
+      description: "Wallet Deposit via Cashfree",
+    },
+  });
+
+  return updatedUser;
+});
     return NextResponse.json({
       success: true,
-      depositWallet: updatedUser.depositWallet,
+      depositWallet: result.depositWallet,
       message: "Deposit wallet updated successfully",
     });
 
@@ -32,3 +40,4 @@ export async function POST(req) {
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
 }
+

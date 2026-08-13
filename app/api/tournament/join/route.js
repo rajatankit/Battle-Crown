@@ -278,6 +278,18 @@ export async function POST(req) {
 
         });
 
+        await tx.walletTransaction.create({
+          data: {
+            userId: user.id,
+            matchId: newMatchHistory.id,
+            amount: -entryFee,
+            type: "Tournament Entry",
+            description: tournamentName || '${gameType} Tournament',
+
+
+          },
+        });
+
 
 
       return {

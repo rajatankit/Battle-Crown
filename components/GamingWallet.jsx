@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { load } from "@cashfreepayments/cashfree-js";
 
 const MIN_WITHDRAW = 100;
@@ -14,6 +14,7 @@ export default function GamingWallet({
   setCrowns,
   userEmail,
   savedUpiId = "",
+  onWalletChange = () => {}, 
 }) {
   const [showDepositModal, setShowDepositModal] = useState(false);
   const [depositAmount, setDepositAmount] = useState("");
@@ -26,6 +27,37 @@ export default function GamingWallet({
 
   const [redeemMessage, setRedeemMessage] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const [transactions, setTransactions] = useState([]);
+const [transactionsLoading, setTransactionsLoading] = useState(true);
+
+useEffect(() => {
+  if (!userEmail) return;
+
+  const fetchTransactions = async () => {
+    try {
+      setTransactionsLoading(true);
+
+      const res = await fetch(
+        `/api/user/transactions?email=${encodeURIComponent(userEmail)}`
+      );
+
+      const data = await res.json();
+
+      if (data.success) {
+        setTransactions(data.transactions || []);
+      } else {
+        console.error("Transaction fetch failed:", data.error);
+      }
+    } catch (error) {
+      console.error("Transaction history error:", error);
+    } finally {
+      setTransactionsLoading(false);
+    }
+  };
+
+  fetchTransactions();
+}, [userEmail]);
 
   const handleCashfreeDeposit = async () => {
     if (!depositAmount || Number(depositAmount) <= 0) {
@@ -60,6 +92,7 @@ export default function GamingWallet({
         const verifyData = await verifyRes.json();
         if (verifyData.success) {
           setDepositWallet(verifyData.depositWallet);
+          onWalletChange();
           alert("🎉 Payment Successful! Money added to your deposit wallet.");
         } else {
           alert("❌ Payment successful but failed to update wallet: " + verifyData.message);
@@ -108,6 +141,7 @@ export default function GamingWallet({
       const data = await res.json();
       if (data.success) {
         setWinningsWallet(data.winningsWallet);
+        onWalletChange();
         setPendingWithdraw({ amount: amt, status: "pending" });
         setWithdrawMessage("✅ Withdrawal request submitted! Admin will verify and pay within 24 hours.");
         setShowWithdrawModal(false);
@@ -141,6 +175,7 @@ export default function GamingWallet({
       if (data.success) {
         setCrowns(data.crowns);
         setDepositWallet(data.depositWallet);
+        onWalletChange();
         setRedeemMessage("🎉 Successfully redeemed 20 Crowns for ₹10 Deposit cash!");
       } else {
         setRedeemMessage(`❌ ${data.error || "Redemption failed"}`);
@@ -407,6 +442,141 @@ export default function GamingWallet({
             <div className="mt-4 text-[9px] text-center font-mono text-yellow-300 bg-yellow-950/20 border border-yellow-800/50 rounded-lg p-2.5">{withdrawMessage}</div>
           )}
 
+          {/* Transaction History */}
+<div className="mt-5 rounded-xl border border-gray-800/80 bg-black/30 overflow-hidden">
+
+  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800/80">
+    <div>
+      <p className="text-[9px] text-cyan-500/80 font-mono tracking-[0.18em] uppercase">
+        // Wallet Activity
+      </p>
+
+      <h4 className="text-sm font-black text-white uppercase tracking-wider mt-0.5">
+        Transaction History
+      </h4>
+    </div>
+
+    <span className="text-[8px] text-gray-500 font-mono uppercase">
+      {transactions.length} Records
+    </span>
+  </div>
+
+  <div className="max-h-[320px] overflow-y-auto">
+
+    {transactionsLoading ? (
+      <div className="p-6 text-center">
+        <div className="inline-block w-5 h-5 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+        <p className="text-[9px] text-gray-500 font-mono mt-2">
+          Loading transactions...
+        </p>
+      </div>
+
+    ) : transactions.length === 0 ? (
+
+      <div className="p-8 text-center">
+        <div className="mx-auto w-10 h-10 rounded-xl bg-gray-900 border border-gray-800 flex items-center justify-center mb-3">
+          💳
+        </div>
+
+        <p className="text-xs text-gray-400 font-bold">
+          No Transactions Yet
+        </p>
+
+        <p className="text-[9px] text-gray-600 font-mono mt-1">
+          Your wallet activity will appear here.
+        </p>
+      </div>
+
+    ) : (
+
+      <div className="divide-y divide-gray-800/60">
+
+        {transactions.map((transaction) => {
+
+          const amount = Number(transaction.amount || 0);
+
+          const type = String(transaction.type || "").toLowerCase();
+
+          const isCredit =
+            type.includes("deposit") ||
+            type.includes("credit") ||
+            type.includes("winning") ||
+            type.includes("reward") ||
+            type.includes("redeem");
+
+          const date = transaction.createdAt
+            ? new Date(transaction.createdAt).toLocaleString("en-IN", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+            : "";
+
+          return (
+            <div
+              key={transaction.id}
+              className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition"
+            >
+
+              {/* Icon */}
+              <div
+                className={`w-9 h-9 shrink-0 rounded-lg border flex items-center justify-center ${
+                  isCredit
+                    ? "bg-emerald-950/40 border-emerald-800/50"
+                    : "bg-red-950/30 border-red-800/50"
+                }`}
+              >
+                <span className="text-sm">
+                  {isCredit ? "↗" : "↘"}
+                </span>
+              </div>
+
+              {/* Details */}
+              <div className="flex-1 min-w-0">
+
+                <p className="text-[10px] text-white font-bold truncate">
+                  {transaction.description ||
+                    transaction.type ||
+                    "Wallet Transaction"}
+                </p>
+
+                <p className="text-[8px] text-gray-600 font-mono mt-0.5">
+                  {date}
+                </p>
+
+              </div>
+
+              {/* Amount */}
+              <div className="text-right shrink-0">
+
+                <p
+                  className={`text-xs font-black ${
+                    isCredit
+                      ? "text-emerald-400"
+                      : "text-red-400"
+                  }`}
+                >
+                  {isCredit ? "+" : "-"}₹{amount}
+                </p>
+
+                <p className="text-[7px] text-gray-600 uppercase font-mono mt-0.5">
+                  {transaction.type || "Transaction"}
+                </p>
+
+              </div>
+
+            </div>
+          );
+        })}
+
+      </div>
+    )}
+
+  </div>
+</div>
+
           <div className="mt-5 flex flex-col sm:flex-row items-center justify-between gap-2 text-[8px] text-gray-600 font-mono uppercase tracking-wider">
             <span>🔒 Secure Wallet</span>
             <span className="hidden sm:block">•</span>
@@ -482,6 +652,8 @@ export default function GamingWallet({
             </div>
           </div>
         </div>
+
+        
       )}
       </>
       );

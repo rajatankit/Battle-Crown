@@ -70,6 +70,7 @@ export default function DashboardPage() {
   const [depositWallet, setDepositWallet]   = useState(0);
   const [winningsWallet, setWinningsWallet] = useState(0);
   const [crowns, setCrowns]                 = useState(0);
+  const [transacions, serTransactions]      = useState(0);
 
   // ─── Screenshot Upload States ───────────────────────────────────────────────
   const [matchScreenshot, setMatchScreenshot] = useState(null);
@@ -110,12 +111,13 @@ export default function DashboardPage() {
   const [playerIgnInput, setPlayerIgnInput]     = useState("");
   const [playerUidInput, setPlayerUidInput]     = useState("");
   const [userEmail, setUserEmail]               = useState("");
+  const [userName, setUserName]                 = useState("");
 
   // ─── Game Profiles ──────────────────────────────────────────────────────────
-  const [bgmiIgn, setBgmiIgn]   = useState("AlphaShadow");
-  const [bgmiUid, setBgmiUid]   = useState("5123456789");
-  const [ffIgn, setFfIgn]       = useState("FireStorm99");
-  const [ffUid, setFfUid]       = useState("9876543210");
+  const [bgmiIgn, setBgmiIgn]   = useState("");
+  const [bgmiUid, setBgmiUid]   = useState("");
+  const [ffIgn, setFfIgn]       = useState("");
+  const [ffUid, setFfUid]       = useState("");
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [tempBgmiIgn, setTempBgmiIgn] = useState(bgmiIgn);
   const [tempBgmiUid, setTempBgmiUid] = useState(bgmiUid);
@@ -170,6 +172,7 @@ export default function DashboardPage() {
       }
 
       if (data?.user) {
+        setUserName(data.user.name || "");
         setDepositWallet(data.user.depositWallet ?? 0);
         setWinningsWallet(data.user.winningsWallet ?? 0);
         setCrowns(data.user.crowns ?? 0);
@@ -180,21 +183,34 @@ export default function DashboardPage() {
         const derivedLevel = calculateLevelFromMatches(totalMatches);
         setPlayerLevel(derivedLevel);
 
-        setBgmiIgn(data.user.bgmiIgn || "AlphaShadow");
-        setBgmiUid(data.user.bgmiUid || "5123456789");
-        setFfIgn(data.user.ffIgn || "FireStorm99");
-        setFfUid(data.user.ffUid || "9876543210");
+        setBgmiIgn(data.user.bgmiIgn || "");
+        setBgmiUid(data.user.bgmiUid || "");
+        setFfIgn(data.user.ffIgn || "");
+        setFfUid(data.user.ffUid || "");
         setBio(data.user.bio || "Ready for the battle! Multi-Game Competitive Esports Player.");
-        setTempBgmiIgn(data.user.bgmiIgn || "AlphaShadow");
-        setTempBgmiUid(data.user.bgmiUid || "5123456789");
-        setTempFfIgn(data.user.ffIgn || "FireStorm99");
-        setTempFfUid(data.user.ffUid || "9876543210");
+        setTempBgmiIgn(data.user.bgmiIgn || "");
+        setTempBgmiUid(data.user.bgmiUid || "");
+        setTempFfIgn(data.user.ffIgn || "");
+        setTempFfUid(data.user.ffUid || "");
         setTempBio(data.user.bio || "Ready for the battle! Multi-Game Competitive Esports Player.");
 
         try {
           const mhRes = await fetch(`/api/user/match-history?email=${encodeURIComponent(email)}`);
           const mhData = await mhRes.json();
           if (mhData.success) setMatchHistory(mhData.matches);
+          try {
+  const txRes = await fetch(
+    `/api/user/transactions?email=${encodeURIComponent(email)}`
+  );
+
+  const txData = await txRes.json();
+
+  if (txData.success) {
+    setTransactions(txData.transactions || []);
+  }
+} catch (txErr) {
+  console.error("Transaction history fetch error:", txErr);
+}
         } catch (mhErr) {
           console.error("Match history fetch error:", mhErr);
         }
@@ -224,6 +240,20 @@ export default function DashboardPage() {
     } catch (err) {
       console.error("Profile refresh error:", err);
     }
+
+    try {
+  const txRes = await fetch(
+    `/api/user/transactions?email=${encodeURIComponent(email)}`
+  );
+
+  const txData = await txRes.json();
+
+  if (txData.success) {
+    setTransactions(txData.transactions || []);
+  }
+} catch (txErr) {
+  console.error("Transactions fetch error:", txErr);
+}
   };
 
   // ─── Auth State Listener — triggers profile load & stops loading screen ────
@@ -330,9 +360,11 @@ export default function DashboardPage() {
 
   // ─── Match History ──────────────────────────────────────────────────────────
   const [matchHistory, setMatchHistory] = useState([]);
-
+  const [transactions, setTransactions] = useState([]);
+  const [isTransactionHistoryOpen, setIsTransactionHistoryOpen] = useState(false);
   const addMatchHistoryRecord = (tournamentName, mapName, gameType, entryPaid, dbMatchId) => {
     const newRecord = {
+
       id: Date.now(),
       dbMatchId,
       tournamentName,
@@ -563,13 +595,25 @@ export default function DashboardPage() {
         </button>
       </div>
 
+      <button
+  onClick={() => setIsTransactionHistoryOpen(true)}
+  title="Transaction History"
+  className="w-9 h-9 bg-[#111824]/90 border border-green-500/30 text-green-400 rounded-lg flex items-center justify-center cursor-pointer hover:border-green-400 hover:bg-green-950/40 transition-all"
+>
+  💳
+</button>
+
       {/* ─── Active Tab ──────────────────────────────────────────────────────── */}
       {activeTab === "home" && (
         <HomeTab
-          displayName={bgmiIgn || "Player"}
+          displayName={userName || "Player"}
           playerLevel={playerLevel}
           protectionPoints={protectionPoints}
           crowns={crowns}
+          bgmiIgn={bgmiIgn}
+          bgmiUid={bgmiUid}
+          ffIgn={ffIgn}
+          ffUid={ffUid}
           tournaments={tournaments}
           liveTournament={tournaments.find((t) => t.status === "live") || null}
           startingSoon={tournaments.slice(0, 2)}
@@ -603,6 +647,7 @@ export default function DashboardPage() {
           crowns={crowns}
           setCrowns={setCrowns}
           userEmail={userEmail}
+          transactions={transacions}
           onNavigate={handleNavigate}
           activeTab={activeTab}
         />
@@ -1063,6 +1108,110 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+
+
+      {/* ─── Transaction History Modal ─────────────────────────────── */}
+{isTransactionHistoryOpen && (
+  <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div className="bg-[#0f141c] border border-green-500/50 p-5 max-w-lg w-full rounded-xl shadow-2xl max-h-[85vh] flex flex-col">
+
+      {/* Header */}
+      <div className="flex justify-between items-center border-b border-gray-800 pb-3 mb-3">
+        <div>
+          <h2 className="text-sm font-bold text-green-400 uppercase tracking-widest">
+            // TRANSACTION HISTORY
+          </h2>
+
+          <p className="text-[10px] text-gray-500 mt-1">
+            Wallet activity & tournament rewards
+          </p>
+        </div>
+
+        <button
+          onClick={() => setIsTransactionHistoryOpen(false)}
+          className="text-gray-400 hover:text-white text-xs cursor-pointer"
+        >
+          ✕
+        </button>
+      </div>
+
+      {/* Transactions */}
+      <div className="space-y-2 overflow-y-auto flex-1 pr-1">
+
+        {transactions.length === 0 ? (
+          <div className="text-center py-10">
+            <div className="text-3xl mb-2">💳</div>
+            <p className="text-xs text-gray-500">
+              No transactions yet.
+            </p>
+          </div>
+        ) : (
+          transactions.map((tx) => {
+
+            const isCredit =
+              ["MATCH_WIN", "DEPOSIT", "REFUND", "BONUS"]
+                .includes(tx.type);
+
+            return (
+              <div
+                key={tx.id}
+                className="bg-black/40 border border-gray-800 rounded-lg p-3"
+              >
+                <div className="flex justify-between items-start gap-3">
+
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-white">
+                      {tx.description || "Wallet Transaction"}
+                    </p>
+
+                    <p className="text-[10px] text-gray-500 mt-1">
+                      {tx.createdAt
+                        ? new Date(tx.createdAt).toLocaleString()
+                        : "Recently"}
+                    </p>
+
+                    {tx.type && (
+                      <span className="inline-block mt-2 text-[9px] px-2 py-0.5 rounded border border-gray-700 text-gray-400">
+                        {tx.type}
+                      </span>
+                    )}
+                  </div>
+
+                  <div
+                    className={`font-bold text-sm whitespace-nowrap ${
+                      isCredit
+                        ? "text-green-400"
+                        : "text-red-400"
+                    }`}
+                  >
+                    {isCredit ? "+" : "-"}₹
+                    {Number(tx.amount || 0).toFixed(2)}
+                  </div>
+
+                </div>
+              </div>
+            );
+          })
+        )}
+
+      </div>
+
+      {/* Close */}
+      <div className="border-t border-gray-800 pt-3 mt-3 flex justify-end">
+        <button
+          onClick={() => setIsTransactionHistoryOpen(false)}
+          className="px-5 py-2 bg-green-500 text-black font-black text-xs uppercase rounded cursor-pointer hover:bg-green-400"
+        >
+          Close
+        </button>
+      </div>
+
+    </div>
+  </div>
+)}
+
+
 
       {/* ─── Step 4: Final Confirmation ───────────────────────────────────────── */}
       {isConfirmModalOpen && activeMatch && (
