@@ -57,7 +57,19 @@ export default function NotificationBell() {
         body: JSON.stringify({ notificationId }),
       });
 
-      const clearAllNotifications = async () => {
+     
+      // Optimistic update
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === notificationId ? { ...n, isRead: true } : n))
+      );
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+    } catch (err) {
+      console.error("Failed to mark as read:", err);
+    }
+  };
+
+
+  const clearAllNotifications = async () => {
   try {
     const auth = getAuth();
     const user = auth.currentUser;
@@ -98,16 +110,6 @@ export default function NotificationBell() {
   }
 };
 
-      // Optimistic update
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === notificationId ? { ...n, isRead: true } : n))
-      );
-      setUnreadCount((prev) => Math.max(0, prev - 1));
-    } catch (err) {
-      console.error("Failed to mark as read:", err);
-    }
-  };
-
   const handleOpen = async () => {
     setOpen(!open);
     if (!open) {
@@ -134,7 +136,7 @@ export default function NotificationBell() {
 
       {open && (
         <div className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto bg-gray-950 border border-gray-700 rounded-lg shadow-2xl z-[9999]" style={{ backgroundColor: "#0a0e14" }}>
-         C<div
+         <div
   className="p-3 border-b border-gray-700 font-bold text-sm text-white bg-gray-900 flex items-center justify-between"
   style={{ backgroundColor: "#111827" }}
 >
