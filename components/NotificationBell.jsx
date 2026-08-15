@@ -57,6 +57,47 @@ export default function NotificationBell() {
         body: JSON.stringify({ notificationId }),
       });
 
+      const clearAllNotifications = async () => {
+  try {
+    const auth = getAuth();
+    const user = auth.currentUser;
+
+    if (!user) return;
+
+    const confirmed = window.confirm(
+      "Are you sure you want to clear all notifications?"
+    );
+
+    if (!confirmed) return;
+
+    const idToken = await user.getIdToken();
+
+    const res = await fetch("/api/notifications", {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+      },
+    });
+
+    const data = await res.json();
+
+    if (data.success) {
+      setNotifications([]);
+      setUnreadCount(0);
+    } else {
+      console.error(
+        "Failed to clear notifications:",
+        data.error
+      );
+    }
+  } catch (err) {
+    console.error(
+      "Failed to clear notifications:",
+      err
+    );
+  }
+};
+
       // Optimistic update
       setNotifications((prev) =>
         prev.map((n) => (n.id === notificationId ? { ...n, isRead: true } : n))
@@ -93,9 +134,21 @@ export default function NotificationBell() {
 
       {open && (
         <div className="absolute right-0 mt-2 w-80 max-h-96 overflow-y-auto bg-gray-950 border border-gray-700 rounded-lg shadow-2xl z-[9999]" style={{ backgroundColor: "#0a0e14" }}>
-          <div className="p-3 border-b border-gray-700 font-bold text-sm text-white bg-gray-900" style={{ backgroundColor: "#111827" }}>
-            Notifications
-          </div>
+         C<div
+  className="p-3 border-b border-gray-700 font-bold text-sm text-white bg-gray-900 flex items-center justify-between"
+  style={{ backgroundColor: "#111827" }}
+>
+  <span>Notifications</span>
+
+  {notifications.length > 0 && (
+    <button
+      onClick={clearAllNotifications}
+      className="text-xs text-cyan-400 hover:text-cyan-300 font-semibold transition"
+    >
+      Clear All
+    </button>
+  )}
+</div>
 
           {loading && (
             <div className="p-4 text-center text-gray-500 text-sm bg-gray-950" style={{ backgroundColor: "#0a0e14" }}>Loading...</div>

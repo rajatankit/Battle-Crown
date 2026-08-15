@@ -21,6 +21,17 @@ export async function GET(request) {
       );
     }
 
+    // Automatically remove notifications older than 24 hours
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    await prisma.notification.deleteMany({
+      where: {
+        createdAt: {
+          lt: cutoff,
+        },
+      },
+    });
+
     const [personal, global] = await Promise.all([
       prisma.notification.findMany({
         where: {
@@ -35,6 +46,9 @@ export async function GET(request) {
       prisma.notification.findMany({
         where: {
           type: "GLOBAL",
+          createdAt: {
+            gte: cutoff,
+          },
         },
         orderBy: {
           createdAt: "desc",
@@ -57,11 +71,9 @@ export async function GET(request) {
       type: n.type,
       title: n.title,
       message: n.message,
-
       isRead:
         Array.isArray(n.readBy) &&
         n.readBy.includes(uid),
-
       createdAt: n.createdAt,
     }));
 
@@ -84,10 +96,7 @@ export async function GET(request) {
       unreadCount,
     });
   } catch (error) {
-    console.error(
-      "GET NOTIFICATIONS ERROR:",
-      error
-    );
+    console.error("GET NOTIFICATIONS ERROR:", error);
 
     return NextResponse.json(
       {
@@ -363,7 +372,11 @@ export async function POST(request) {
 // PATCH /api/notifications
 // Marks a notification as read
 // =====================================================
-export async function PATCH(request) {
+// =====================================================
+// DELETE /api/notifications
+// Clears notifications for the current user
+// =====================================================
+export async function DELETE(request) {
   try {
     const uid = await getVerifiedUid(request);
 
@@ -377,91 +390,41 @@ export async function PATCH(request) {
       );
     }
 
-    const body = await request.json();
+    // Delete only PERSONAL notifications belonging to this user
+    await prisma.notification.deleteMany({
+      where: {
+        type: "PERSONAL",
+        userId: uid,
+      },
+    });
 
-    const notificationId =
-      body?.notificationId;
-
-    if (!notificationId) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "notificationId is required",
-        },
-        { status: 400 }
-      );
-    }
-
-    const notification =
-      await prisma.notification.findUnique({
+    // For GLOBAL notifications:
+    // Don't delete them from DB because they belong to everyone.
+    // Instead, add this user to readBy so they disappear from
+    // this user's notification list.
+    const globalNotifications =
+      await prisma.notification.findMany({
         where: {
-          id: notificationId,
+          type: "GLOBAL",
+        },
+        select: {
+          id: true,
+          readBy: true,
         },
       });
 
-    if (!notification) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Notification not found",
-        },
-        { status: 404 }
-      );
-    }
+    for (const notification of globalNotifications) {
+      const currentReadBy = Array.isArray(
+        notification.readBy
+      )
+        ? notification.readBy
+        : [];
 
-    // -----------------------------------------------
-    // PERSONAL NOTIFICATION
-    // -----------------------------------------------
-    if (
-      notification.type ===
-      "PERSONAL"
-    ) {
-      if (
-        notification.userId !== uid
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: "Forbidden",
-          },
-          { status: 403 }
-        );
-      }
-
-      await prisma.notification.update({
-        where: {
-          id: notificationId,
-        },
-
-        data: {
-          read: true,
-        },
-      });
-    }
-
-    // -----------------------------------------------
-    // GLOBAL NOTIFICATION
-    // -----------------------------------------------
-    else if (
-      notification.type ===
-      "GLOBAL"
-    ) {
-      const currentReadBy =
-        Array.isArray(
-          notification.readBy
-        )
-          ? notification.readBy
-          : [];
-
-      if (
-        !currentReadBy.includes(uid)
-      ) {
+      if (!currentReadBy.includes(uid)) {
         await prisma.notification.update({
           where: {
-            id: notificationId,
+            id: notification.id,
           },
-
           data: {
             readBy: {
               push: uid,
@@ -473,10 +436,11 @@ export async function PATCH(request) {
 
     return NextResponse.json({
       success: true,
+      message: "All notifications cleared.",
     });
   } catch (error) {
     console.error(
-      "MARK READ ERROR:",
+      "CLEAR NOTIFICATIONS ERROR:",
       error
     );
 
@@ -485,7 +449,7 @@ export async function PATCH(request) {
         success: false,
         error:
           error?.message ||
-          "Failed to mark notification as read",
+          "Failed to clear notifications",
       },
       { status: 500 }
     );

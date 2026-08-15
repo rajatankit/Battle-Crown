@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { prisma } from "../../../lib/prisma";
 
 export async function POST(req) {
   try {
@@ -9,12 +7,15 @@ export async function POST(req) {
 
     if (!tournamentId || !roomId || !roomPassword) {
       return NextResponse.json(
-        { success: false, message: "Missing required fields" },
+        {
+          success: false,
+          message: "Missing required fields",
+        },
         { status: 400 }
       );
     }
 
-    // Tournament join karne wale players nikalo
+    // Get all players who joined this tournament
     const players = await prisma.matchHistory.findMany({
       where: {
         tournamentId: String(tournamentId),
@@ -31,11 +32,19 @@ export async function POST(req) {
       });
     }
 
-    // Har player ka UID nikalo
-    for (const player of players) {
+    // Remove duplicate user IDs
+    const uniqueUserIds = [
+      ...new Set(players.map((player) => player.userId)),
+    ];
+
+    let notificationCount = 0;
+    let skippedCount = 0;
+
+    // Send notification only once per user
+    for (const userId of uniqueUserIds) {
       const user = await prisma.user.findUnique({
         where: {
-          id: player.userId,
+          id: userId,
         },
         select: {
           uid: true,
@@ -44,28 +53,54 @@ export async function POST(req) {
 
       if (!user?.uid) continue;
 
+      const title = "🎮 Room Details Released";
+      const message = `Room ID: ${roomId}\nPassword: ${roomPassword}`;
+
+      // Prevent duplicate notification
+      // if the same room details were already sent
+      const existingNotification =
+        await prisma.notification.findFirst({
+          where: {
+            type: "PERSONAL",
+            userId: user.uid,
+            title,
+            message,
+          },
+          select: {
+            id: true,
+          },
+        });
+
+      if (existingNotification) {
+        skippedCount++;
+        continue;
+      }
+
       await prisma.notification.create({
         data: {
           type: "PERSONAL",
           userId: user.uid,
-          title: "🎮 Room Details Released",
-          message: `Room ID: ${roomId}\nPassword: ${roomPassword}`,
+          title,
+          message,
         },
       });
+
+      notificationCount++;
     }
 
     return NextResponse.json({
       success: true,
-      message: "Notifications Created Successfully",
+      message: "Room details notifications processed successfully",
+      notificationCount,
+      skippedCount,
     });
-
   } catch (error) {
-    console.error(error);
+    console.error("SEND ROOM DETAILS ERROR:", error);
 
     return NextResponse.json(
       {
         success: false,
-        message: error.message,
+        message: error?.message || "Failed to send room details",
       },
       {
         status: 500,
@@ -73,44 +108,3 @@ export async function POST(req) {
     );
   }
 }
-const saveRoomDetails = async () => {
-  if (!selectedTournament) return;
-
-  try {
-    // 1. Firebase me Room Details save karo
-    await updateDoc(
-      doc(db, "tournaments", selectedTournament.id),
-      {
-        roomId,
-        roomPassword,
-      }
-    );
-
-    // 2. Backend API ko call karo
-    const response = await fetch("/api/admin/send-room-details", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        tournamentId: selectedTournament.id,
-        roomId,
-        roomPassword,
-      }),
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.message);
-    }
-
-    alert("✅ Room Details Saved & Notifications Sent");
-
-    setSelectedTournament(null);
-
-  } catch (err) {
-    console.error(err);
-    alert("❌ " + err.message);
-  }
-};

@@ -418,7 +418,7 @@ export default function DashboardPage() {
       }
 
       if (data.success) {
-        alert("🎉 Match screenshot successfully upload ho gaya! Admin verify hone ke baad winning wallet me add kar diya jayega.");
+      alert("🎉 Match screenshot uploaded successfully! Your screenshot is now pending admin verification. Once verified, the winnings will be credited to your winnings wallet.");
         setMatchScreenshot(null);
         setMatchHistory((prev) =>
           prev.map((m) =>
