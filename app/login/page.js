@@ -189,6 +189,25 @@ const dbResponse = await fetch("/api/user/register", {
                 placeholder="••••••••"
               />
             </div>
+            <div>
+  <label className="block text-xs font-semibold text-gray-400 mb-1">PASSWORD</label>
+  <input 
+    type="password" 
+    value={password} 
+    onChange={(e) => setPassword(e.target.value)}
+    required
+    className="w-full bg-[#161d2b] border border-gray-700 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+    placeholder="••••••••"
+  />
+  <div className="text-right mt-1.5">
+    <a 
+      href="/forgot-password" 
+      className="text-xs text-cyan-400 hover:underline"
+    >
+      Forgot Password?
+    </a>
+  </div>
+</div>
 
             <button 
               type="submit"
