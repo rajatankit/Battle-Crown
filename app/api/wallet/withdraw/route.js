@@ -106,7 +106,7 @@ export async function POST(request) {
       {
         success: true,
         message: "Withdrawal request submitted successfully",
-        winningsWallet: updatedUser.winningsWallet,
+        winningsWallet: result.updatedUser.winningsWallet,
       },
       { headers: { "Content-Type": "application/json" } }
     );

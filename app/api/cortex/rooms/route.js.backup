@@ -1,0 +1,407 @@
+﻿import { NextResponse } from "next/server";
+import { prisma } from "../../../lib/prisma";
+
+const BATTLE_CROWN_BRIDGE_TOKEN = process.env.BATTLE_CROWN_BRIDGE_TOKEN || "";
+
+function unauthorized() {
+  return NextResponse.json(
+    {
+      status: "error",
+      message: "Unauthorized CORTEX bridge request",
+    },
+    { status: 401 }
+  );
+}
+
+function getBearerToken(request) {
+  const header = request.headers.get("authorization");
+
+  if (!header) {
+    return null;
+  }
+
+  if (!header.startsWith("Bearer ")) {
+    return null;
+  }
+
+  return header.slice(7).trim();
+}
+
+function isAuthorized(request) {
+  const providedToken = getBearerToken(request);
+
+  if (!BATTLE_CROWN_BRIDGE_TOKEN || !providedToken) {
+    return false;
+  }
+
+  return providedToken === BATTLE_CROWN_BRIDGE_TOKEN;
+}
+
+function normalizeTournamentId(value) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  const id = Number(value);
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return null;
+  }
+
+  return id;
+}
+
+export async function POST(request) {
+  try {
+    // ------------------------------------------------------------
+    // CORTEX AUTHENTICATION
+    // ------------------------------------------------------------
+    if (!isAuthorized(request)) {
+      return unauthorized();
+    }
+
+    // ------------------------------------------------------------
+    // READ REQUEST
+    // ------------------------------------------------------------
+    const body = await request.json();
+
+    const action = body?.action;
+    const context = body?.context || {};
+
+    if (!action) {
+      return NextResponse.json(
+        {
+          status: "error",
+          message: "action is required",
+        },
+        { status: 400 }
+      );
+    }
+
+    // ============================================================
+    // STORE ROOM DATA
+    // ============================================================
+    if (action === "store_room_data") {
+      const roomId = context.room_id;
+      const tournamentId = normalizeTournamentId(
+        context.tournament_id
+      );
+
+      const password = context.password;
+      const game = context.game;
+      const status = context.status;
+      const capacity = context.capacity;
+
+      if (!roomId) {
+        return NextResponse.json(
+          {
+            status: "error",
+            message: "room_id is required",
+          },
+          { status: 400 }
+        );
+      }
+
+      if (!tournamentId) {
+        return NextResponse.json(
+          {
+            status: "error",
+            message: "valid numeric tournament_id is required",
+          },
+          { status: 400 }
+        );
+      }
+
+      if (!password) {
+        return NextResponse.json(
+          {
+            status: "error",
+            message: "password is required",
+          },
+          { status: 400 }
+        );
+      }
+
+      const tournament = await prisma.tournament.findUnique({
+        where: {
+          id: tournamentId,
+        },
+      });
+
+      if (!tournament) {
+        return NextResponse.json(
+          {
+            status: "error",
+            message: "Tournament not found",
+            tournament_id: tournamentId,
+          },
+          { status: 404 }
+        );
+      }
+
+      const updatedTournament =
+        await prisma.tournament.update({
+          where: {
+            id: tournamentId,
+          },
+          data: {
+            roomId: String(roomId),
+            roomPassword: String(password),
+            ...(game !== undefined &&
+            game !== null &&
+            game !== ""
+              ? { game: String(game) }
+              : {}),
+            ...(status !== undefined &&
+            status !== null &&
+            status !== ""
+              ? { status: String(status) }
+              : {}),
+            ...(capacity !== undefined &&
+            capacity !== null &&
+            Number.isInteger(Number(capacity))
+              ? { maxSlots: Number(capacity) }
+              : {}),
+          },
+          select: {
+            id: true,
+            title: true,
+            game: true,
+            roomId: true,
+            roomPassword: true,
+            status: true,
+            maxSlots: true,
+          },
+        });
+
+      return NextResponse.json({
+        status: "success",
+        action: "store_room_data",
+        message: "Protected room data stored successfully",
+        data: {
+          tournament_id: updatedTournament.id,
+          room_id: updatedTournament.roomId,
+          tournament_title: updatedTournament.title,
+          game: updatedTournament.game,
+          status: updatedTournament.status,
+          capacity: updatedTournament.maxSlots,
+          password: updatedTournament.roomPassword,
+        },
+      });
+    }
+
+    // ============================================================
+    // READ ROOM DATA
+    // ============================================================
+    if (action === "read_room_data") {
+      const roomId = context.room_id;
+
+      if (!roomId) {
+        return NextResponse.json(
+          {
+            status: "error",
+            message: "room_id is required",
+          },
+          { status: 400 }
+        );
+      }
+
+      const tournament = await prisma.tournament.findFirst({
+        where: {
+          roomId: String(roomId),
+        },
+        select: {
+          id: true,
+          title: true,
+          game: true,
+          roomId: true,
+          roomPassword: true,
+          status: true,
+          maxSlots: true,
+        },
+      });
+
+      if (!tournament) {
+        return NextResponse.json(
+          {
+            status: "error",
+            message: "Protected room not found",
+            room_id: roomId,
+          },
+          { status: 404 }
+        );
+      }
+
+      return NextResponse.json({
+        status: "success",
+        action: "read_room_data",
+        message: "Protected room data retrieved successfully",
+        data: {
+          tournament_id: tournament.id,
+          tournament_title: tournament.title,
+          game: tournament.game,
+          room_id: tournament.roomId,
+          password: tournament.roomPassword,
+          status: tournament.status,
+          capacity: tournament.maxSlots,
+        },
+      });
+    }
+
+    // ============================================================
+    // UPDATE ROOM DATA
+    // ============================================================
+    if (action === "update_room_data") {
+      const roomId = context.room_id;
+      const updates = context.updates;
+
+      if (!roomId) {
+        return NextResponse.json(
+          {
+            status: "error",
+            message: "room_id is required",
+          },
+          { status: 400 }
+        );
+      }
+
+      if (
+        !updates ||
+        typeof updates !== "object" ||
+        Array.isArray(updates)
+      ) {
+        return NextResponse.json(
+          {
+            status: "error",
+            message: "updates must be an object",
+          },
+          { status: 400 }
+        );
+      }
+
+      const existingTournament =
+        await prisma.tournament.findFirst({
+          where: {
+            roomId: String(roomId),
+          },
+          select: {
+            id: true,
+          },
+        });
+
+      if (!existingTournament) {
+        return NextResponse.json(
+          {
+            status: "error",
+            message: "Protected room not found",
+            room_id: roomId,
+          },
+          { status: 404 }
+        );
+      }
+
+      const data = {};
+
+      if (
+        updates.password !== undefined &&
+        updates.password !== null
+      ) {
+        data.roomPassword = String(updates.password);
+      }
+
+      if (
+        updates.room_id !== undefined &&
+        updates.room_id !== null &&
+        updates.room_id !== ""
+      ) {
+        data.roomId = String(updates.room_id);
+      }
+
+      if (
+        updates.game !== undefined &&
+        updates.game !== null
+      ) {
+        data.game = String(updates.game);
+      }
+
+      if (
+        updates.status !== undefined &&
+        updates.status !== null
+      ) {
+        data.status = String(updates.status);
+      }
+
+      if (
+        updates.capacity !== undefined &&
+        updates.capacity !== null &&
+        Number.isInteger(Number(updates.capacity))
+      ) {
+        data.maxSlots = Number(updates.capacity);
+      }
+
+      if (Object.keys(data).length === 0) {
+        return NextResponse.json(
+          {
+            status: "error",
+            message: "No valid room updates supplied",
+          },
+          { status: 400 }
+        );
+      }
+
+      const updatedTournament =
+        await prisma.tournament.update({
+          where: {
+            id: existingTournament.id,
+          },
+          data,
+          select: {
+            id: true,
+            title: true,
+            game: true,
+            roomId: true,
+            roomPassword: true,
+            status: true,
+            maxSlots: true,
+          },
+        });
+
+      return NextResponse.json({
+        status: "success",
+        action: "update_room_data",
+        message: "Protected room data updated successfully",
+        data: {
+          tournament_id: updatedTournament.id,
+          tournament_title: updatedTournament.title,
+          game: updatedTournament.game,
+          room_id: updatedTournament.roomId,
+          password: updatedTournament.roomPassword,
+          status: updatedTournament.status,
+          capacity: updatedTournament.maxSlots,
+        },
+      });
+    }
+
+    // ============================================================
+    // UNKNOWN ACTION
+    // ============================================================
+    return NextResponse.json(
+      {
+        status: "error",
+        message: `Unknown CORTEX room action: ${action}`,
+      },
+      { status: 400 }
+    );
+  } catch (error) {
+    console.error("CORTEX rooms bridge error:", error);
+
+    return NextResponse.json(
+      {
+        status: "error",
+        message: "Internal CORTEX room bridge error",
+      },
+      { status: 500 }
+    );
+  }
+}
+

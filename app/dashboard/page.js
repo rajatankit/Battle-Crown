@@ -52,19 +52,26 @@ export default function DashboardPage() {
 
   // Live tournaments (Firestore realtime)
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, "tournaments"), (snapshot) => {
-      const list = snapshot.docs.map((d) => {
-        const data = d.data();
-        return {
-          id: d.id,
-          ...data,
-          date: data.date?.toDate ? data.date.toDate().toISOString() : data.date,
-        };
-      });
-      setTournaments(list);
+  const unsubscribe = onSnapshot(collection(db, "tournaments"), (snapshot) => {
+    const list = snapshot.docs.map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        ...data,
+        date: data.date?.toDate ? data.date.toDate().toISOString() : data.date,
+      };
     });
-    return () => unsubscribe();
-  }, []);
+    setTournaments(list);
+
+    // 👇 NEW — Postgres ki tournaments table ko Firestore ke saath sync rakhta hai
+    fetch("/api/tournament/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tournaments: list }),
+    }).catch((err) => console.error("Tournament sync failed:", err));
+  });
+  return () => unsubscribe();
+}, []);
 
   // ─── Wallet & Crown States ──────────────────────────────────────────────────
   const [depositWallet, setDepositWallet]   = useState(0);

@@ -52,6 +52,15 @@ export async function POST(request) {
       },
     });
 
+    await prisma.walletTransaction.create({
+      data: {
+        userId: user.id,
+        amount: depositMoneyToAdd,
+        type: "Crown Redeem",
+        description: `${crownsToDeduct} Crowns redeemed for ₹${depositMoneyToAdd}`,
+      },
+    });
+    
     return NextResponse.json(
       {
         success: true,

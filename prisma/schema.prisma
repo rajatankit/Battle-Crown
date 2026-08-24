@@ -38,6 +38,7 @@ model User {
 
 model Tournament {
   id           Int       @id @default(autoincrement())
+  firestoreId  String?   @uniqueSSS
   title        String
   game         String
   map          String?
@@ -169,4 +170,25 @@ model Notification {
 
   @@index([userId])
   @@index([type])
+}
+
+model PersonalPasskey {
+  id           String   @id @default(cuid())
+  ownerUid     String
+  credentialId String   @unique
+  publicKey    Bytes
+  counter      BigInt   @default(0)
+  transports   String[] @default([])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([ownerUid])
+}
+
+model PersonalPasskeyChallenge {
+  ownerUid  String   @id
+  challenge String
+  purpose   String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
 }
