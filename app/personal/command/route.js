@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requirePersonalOwner } from "../lib/personal-owner";
+import { requirePersonalOwner } from "../../../lib/personal-owner";
 
 const CORTEX_BRIDGE_URL = process.env.CORTEX_BRIDGE_URL || "https://cortex-21p4.onrender.com";
 const CORTEX_BRIDGE_TOKEN = process.env.CORTEX_BRIDGE_TOKEN || "";
