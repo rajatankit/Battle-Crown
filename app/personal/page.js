@@ -19,6 +19,7 @@ export default function PersonalAssistantPage() {
 
   const recognitionRef = useRef(null);
   const idTokenRef = useRef(null);
+  const [unlocked, setUnlocked] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -93,7 +94,7 @@ export default function PersonalAssistantPage() {
     window.speechSynthesis.speak(utterance);
   }
 
-  function handleOrbTap() {
+  function handleCoreTap() {
     if (!recognitionRef.current || listening || busy) return;
     setTranscript("");
     setReply("");
@@ -102,46 +103,68 @@ export default function PersonalAssistantPage() {
   }
 
   async function sendCommand(commandText) {
-    if (!idTokenRef.current || !commandText.trim()) return;
-    setBusy(true);
-    try {
-      const response = await fetch("/api/personal/command", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${idTokenRef.current}`,
-        },
-        body: JSON.stringify({ command: commandText }),
-      });
-      const payload = await response.json();
+   if (!idTokenRef.current || !commandText.trim()) return;
 
-      if (!payload.success) {
-        const errMsg = payload.error || "Command failed.";
-        setReply(`Error: ${errMsg}`);
-        speak("Sorry, that command failed.");
-        return;
-      }
+   const text = commandText.trim().toLowerCase();
 
-      const spoken =
-        payload.result?.message ||
-        payload.result?.data?.message ||
-        "Done.";
-      setReply(spoken);
-      speak(spoken);
-    } catch (error) {
-      setReply(`Error: ${error.message}`);
-      speak("Sorry, something went wrong.");
-    } finally {
-      setBusy(false);
+  // ========== VOICE PIN (Step 1) ==========
+   const UNLOCK_PHRASE = "cortex unlock";   // ← apna phrase yahan daal
+
+  // Agar abhi locked hai
+  if (!unlocked) {
+    if (text === UNLOCK_PHRASE || text.includes("cortex unlock")) {
+      setUnlocked(true);
+      setReply("Unlocked. Ab boliye kya kaam hai.");
+      speak("Unlocked. Ab boliye kya kaam hai.");
+      return;
+    } else {
+      setReply("Pehle unlock karo. Bolo: cortex unlock");
+      speak("Pehle unlock karo. Bolo cortex unlock");
+      return;
     }
   }
+
+  // ========== NORMAL COMMAND ==========
+  setBusy(true);
+  try {
+    const response = await fetch("/api/personal/command", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idTokenRef.current}`,
+      },
+      body: JSON.stringify({ command: commandText }),
+    });
+
+    const payload = await response.json();
+
+    if (!payload.success) {
+      const errMsg = payload.error || "Command failed.";
+      setReply(`Error: ${errMsg}`);
+      speak("Sorry, that command failed.");
+      return;
+    }
+
+    const spoken =
+      payload.result?.message ||
+      payload.result?.data?.message ||
+      "Done.";
+    setReply(spoken);
+    speak(spoken);
+  } catch (error) {
+    setReply(`Error: ${error.message}`);
+    speak("Sorry, something went wrong.");
+  } finally {
+    setBusy(false);
+  }
+}
 
   // ==================== LOADING / NOT VERIFIED ====================
   if (state.loading || !state.ownerVerified) {
     return (
       <main className="min-h-screen bg-black flex items-center justify-center p-6">
         <div className="text-center">
-          <p className="text-cyan-500 text-sm tracking-widest mb-3">
+          <p className="text-red-500 text-sm tracking-widest mb-3">
             PERSONAL COMMAND CENTER
           </p>
           <p className="text-gray-300 text-sm">{state.message}</p>
@@ -155,65 +178,167 @@ export default function PersonalAssistantPage() {
     );
   }
 
-  // ==================== MAIN CORTEX UI ====================
+  const activityLabel = listening ? "LISTENING" : busy ? "PROCESSING" : "ONLINE";
+
+  // ==================== MAIN CORTEX UI — ULTRON-INSPIRED CORE ====================
   return (
-    <main className="relative min-h-screen bg-black overflow-hidden flex flex-col items-center justify-center">
+    <main className="relative min-h-screen bg-black overflow-hidden flex flex-col items-center justify-center select-none">
+      <style>{`
+        @keyframes coreRotateSlow {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        @keyframes coreRotateReverse {
+          from { transform: rotate(360deg); }
+          to { transform: rotate(0deg); }
+        }
+        @keyframes corePulse {
+          0%, 100% { transform: scale(1); opacity: 0.9; }
+          50% { transform: scale(1.06); opacity: 1; }
+        }
+        @keyframes coreFlicker {
+          0%, 100% { opacity: 1; }
+          45% { opacity: 0.85; }
+          50% { opacity: 1; }
+          55% { opacity: 0.7; }
+          60% { opacity: 1; }
+        }
+        @keyframes scanline {
+          0% { transform: translateY(-100%); opacity: 0; }
+          10% { opacity: 0.6; }
+          90% { opacity: 0.6; }
+          100% { transform: translateY(100%); opacity: 0; }
+        }
+        .ultron-ring {
+          position: absolute;
+          border-radius: 9999px;
+          border-style: solid;
+        }
+        .ultron-plate {
+          clip-path: polygon(
+            50% 0%, 80% 10%, 100% 35%, 100% 65%,
+            80% 90%, 50% 100%, 20% 90%, 0% 65%,
+            0% 35%, 20% 10%
+          );
+        }
+      `}</style>
 
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(220,38,38,0.08)_0%,_transparent_70%)]"></div>
+      {/* Ambient background glow */}
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(220,38,38,0.10)_0%,_transparent_65%)]" />
 
-      <div className="absolute top-8 left-0 right-0 text-center z-10">
-        <p className="text-red-500/80 text-xs tracking-[0.3em] font-medium">
-          CORTEX
+      {/* Faint scanning grid */}
+      <div
+        className="absolute inset-0 opacity-[0.04]"
+        style={{
+          backgroundImage:
+            "linear-gradient(rgba(255,0,0,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,0,0,0.6) 1px, transparent 1px)",
+          backgroundSize: "40px 40px",
+        }}
+      />
+
+      {/* Top status */}
+      <div className="absolute top-8 left-0 right-0 text-center z-20">
+        <p className="text-red-500 text-xs tracking-[0.5em] font-bold [text-shadow:0_0_10px_rgba(220,38,38,0.8)]">
+          C O R T E X
         </p>
-        <p className="text-gray-500 text-[10px] mt-1 tracking-widest">
-          {listening ? "LISTENING…" : busy ? "THINKING…" : "ONLINE"}
+        <p className="text-gray-500 text-[10px] mt-2 tracking-[0.3em]">
+          {activityLabel}
         </p>
       </div>
 
-      {/* ========== RED ORB (tap to speak) ========== */}
+      {/* ========== ULTRON-INSPIRED GLOWING CORE ========== */}
       <button
-        onClick={handleOrbTap}
+        onClick={handleCoreTap}
         disabled={listening || busy}
-        className="relative z-10 flex items-center justify-center disabled:cursor-default"
+        className="relative z-10 flex items-center justify-center w-72 h-72 disabled:cursor-default"
+        aria-label="Tap to speak to CORTEX"
       >
+        {/* Outer atmospheric glow */}
         <div
-          className={`absolute w-64 h-64 rounded-full bg-red-600/20 blur-3xl ${
-            listening ? "animate-ping" : "animate-pulse"
+          className={`absolute w-72 h-72 rounded-full bg-red-600/25 blur-[60px] ${
+            listening ? "animate-ping" : ""
           }`}
-        ></div>
+          style={{ animationDuration: listening ? "1.4s" : undefined }}
+        />
+        <div className="absolute w-64 h-64 rounded-full bg-red-500/10 blur-2xl" style={{ animation: "corePulse 3s ease-in-out infinite" }} />
 
-        <div className="absolute w-48 h-48 rounded-full border border-red-500/30 animate-[spin_12s_linear_infinite]"></div>
-        <div className="absolute w-40 h-40 rounded-full border border-red-600/20 animate-[spin_8s_linear_infinite_reverse]"></div>
+        {/* Rotating outer mechanical rings */}
+        <div
+          className="ultron-ring w-64 h-64 border-red-500/25"
+          style={{ borderWidth: "1px", animation: "coreRotateSlow 18s linear infinite" }}
+        >
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_2px_rgba(220,38,38,0.9)]" />
+          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-1.5 h-1.5 rounded-full bg-red-500/70 shadow-[0_0_6px_2px_rgba(220,38,38,0.7)]" />
+        </div>
 
-        <div className="relative w-32 h-32 rounded-full bg-gradient-to-br from-red-600 via-red-800 to-black shadow-[0_0_60px_rgba(220,38,38,0.6)] animate-[pulse_3s_ease-in-out_infinite] flex items-center justify-center">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-red-400 to-red-900 shadow-inner animate-[pulse_2s_ease-in-out_infinite]"></div>
-          <div className="absolute top-4 left-6 w-6 h-6 rounded-full bg-white/20 blur-sm"></div>
+        <div
+          className="ultron-ring w-56 h-56 border-red-600/20"
+          style={{
+            borderWidth: "1px",
+            borderStyle: "dashed",
+            animation: "coreRotateReverse 12s linear infinite",
+          }}
+        />
+
+        <div
+          className="ultron-ring w-48 h-48 border-red-400/30"
+          style={{ borderWidth: "2px", animation: "coreRotateSlow 9s linear infinite" }}
+        />
+
+        {/* Angular metallic plate (Ultron-inspired faceplate) */}
+        <div
+          className="ultron-plate absolute w-40 h-40 bg-gradient-to-br from-neutral-800 via-black to-neutral-900 shadow-[0_0_40px_rgba(220,38,38,0.35)]"
+          style={{ animation: "corePulse 4s ease-in-out infinite" }}
+        >
+          <div className="absolute inset-[6px] ultron-plate bg-gradient-to-br from-red-950 via-black to-neutral-950" />
+        </div>
+
+        {/* Glowing central core / "eye" */}
+        <div
+          className="relative w-24 h-24 rounded-full flex items-center justify-center"
+          style={{
+            background:
+              "radial-gradient(circle at 35% 30%, rgba(255,140,120,0.95), rgba(220,38,38,0.9) 40%, rgba(120,10,10,0.95) 70%, black 100%)",
+            boxShadow:
+              "0 0 25px 6px rgba(220,38,38,0.75), 0 0 60px 20px rgba(220,38,38,0.35), inset 0 0 20px rgba(0,0,0,0.6)",
+            animation: "coreFlicker 2.5s ease-in-out infinite",
+          }}
+        >
+          <div className="w-8 h-8 rounded-full bg-white/70 blur-[3px]" />
+        </div>
+
+        {/* Scanning light sweep */}
+        <div className="absolute w-40 h-40 overflow-hidden ultron-plate pointer-events-none">
+          <div
+            className="absolute left-0 right-0 h-10 bg-gradient-to-b from-transparent via-red-300/40 to-transparent"
+            style={{ animation: "scanline 2.6s linear infinite" }}
+          />
         </div>
       </button>
 
       {/* Transcript / reply */}
-      <div className="absolute bottom-28 left-0 right-0 z-10 flex flex-col items-center px-6 space-y-2">
+      <div className="absolute bottom-28 left-0 right-0 z-20 flex flex-col items-center px-6 space-y-2">
         {transcript && (
           <p className="text-xs text-gray-400 max-w-xs text-center">
-            <span className="text-red-500">You: </span>
+            <span className="text-red-500 font-semibold">You: </span>
             {transcript}
           </p>
         )}
         {reply && (
           <p className="text-xs text-gray-200 max-w-xs text-center">
-            <span className="text-red-500">CORTEX: </span>
+            <span className="text-red-500 font-semibold">CORTEX: </span>
             {reply}
           </p>
         )}
       </div>
 
-      <div className="absolute bottom-16 left-0 right-0 text-center z-10">
-        <p className="text-gray-500 text-xs tracking-widest">
+      <div className="absolute bottom-14 left-0 right-0 text-center z-20">
+        <p className="text-gray-500 text-xs tracking-[0.2em]">
           {listening
             ? "Listening…"
             : busy
             ? "Processing…"
-            : "Tap the orb and speak"}
+            : "Tap the core and speak"}
         </p>
       </div>
     </main>
