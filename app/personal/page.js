@@ -16,10 +16,16 @@ export default function PersonalAssistantPage() {
   const [busy, setBusy] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [reply, setReply] = useState("");
+  const [unlocked, setUnlocked] = useState(false);
 
   const recognitionRef = useRef(null);
   const idTokenRef = useRef(null);
-  const [unlocked, setUnlocked] = useState(false);
+  const unlockedRef = useRef(false); // fixes stale closure
+
+  // keep ref in sync
+  useEffect(() => {
+    unlockedRef.current = unlocked;
+  }, [unlocked]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -65,6 +71,7 @@ export default function PersonalAssistantPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+
     const SpeechRecognition =
       window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) return;
@@ -103,61 +110,69 @@ export default function PersonalAssistantPage() {
   }
 
   async function sendCommand(commandText) {
-   if (!idTokenRef.current || !commandText.trim()) return;
+    if (!idTokenRef.current || !commandText.trim()) return;
 
-   const text = commandText.trim().toLowerCase();
+    const text = commandText.trim().toLowerCase();
+    const UNLOCK_PHRASE = "cortex unlock";
 
-  // ========== VOICE PIN (Step 1) ==========
-   const UNLOCK_PHRASE = "cortex unlock";   // ← apna phrase yahan daal
+    // ========== VOICE PIN (Step 1) ==========
+    if (!unlockedRef.current) {
+      if (text === UNLOCK_PHRASE || text.includes("cortex unlock")) {
+        unlockedRef.current = true;
+        setUnlocked(true);
+        setReply("Unlocked. Ab boliye kya kaam hai.");
+        speak("Unlocked. Ab boliye kya kaam hai.");
+        return;
+      }
 
-  // Agar abhi locked hai
-  if (!unlocked) {
-    if (text === UNLOCK_PHRASE || text.includes("cortex unlock")) {
-      setUnlocked(true);
-      setReply("Unlocked. Ab boliye kya kaam hai.");
-      speak("Unlocked. Ab boliye kya kaam hai.");
-      return;
-    } else {
       setReply("Pehle unlock karo. Bolo: cortex unlock");
       speak("Pehle unlock karo. Bolo cortex unlock");
       return;
     }
-  }
 
-  // ========== NORMAL COMMAND ==========
-  setBusy(true);
-  try {
-    const response = await fetch("/api/personal/command", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${idTokenRef.current}`,
-      },
-      body: JSON.stringify({ command: commandText }),
-    });
-
-    const payload = await response.json();
-
-    if (!payload.success) {
-      const errMsg = payload.error || "Command failed.";
-      setReply(`Error: ${errMsg}`);
-      speak("Sorry, that command failed.");
+    // Optional: re-lock
+    if (text === "cortex lock" || text.includes("lock cortex")) {
+      unlockedRef.current = false;
+      setUnlocked(false);
+      setReply("Locked.");
+      speak("Locked.");
       return;
     }
 
-    const spoken =
-      payload.result?.message ||
-      payload.result?.data?.message ||
-      "Done.";
-    setReply(spoken);
-    speak(spoken);
-  } catch (error) {
-    setReply(`Error: ${error.message}`);
-    speak("Sorry, something went wrong.");
-  } finally {
-    setBusy(false);
+    // ========== NORMAL COMMAND ==========
+    setBusy(true);
+    try {
+      const response = await fetch("/api/personal/command", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idTokenRef.current}`,
+        },
+        body: JSON.stringify({ command: commandText }),
+      });
+
+      const payload = await response.json();
+
+      if (!payload.success) {
+        const errMsg = payload.error || "Command failed.";
+        setReply(`Error: ${errMsg}`);
+        speak("Sorry, that command failed.");
+        return;
+      }
+
+      const spoken =
+        payload.result?.message ||
+        payload.result?.data?.message ||
+        "Done.";
+      setReply(spoken);
+      speak(spoken);
+    } catch (error) {
+      setReply(`Error: ${error.message}`);
+      speak("Sorry, something went wrong.");
+    } finally {
+      setBusy(false);
+    }
   }
-}
 
   // ==================== LOADING / NOT VERIFIED ====================
   if (state.loading || !state.ownerVerified) {
@@ -178,9 +193,15 @@ export default function PersonalAssistantPage() {
     );
   }
 
-  const activityLabel = listening ? "LISTENING" : busy ? "PROCESSING" : "ONLINE";
+  const activityLabel = listening
+    ? "LISTENING"
+    : busy
+    ? "PROCESSING"
+    : unlocked
+    ? "ONLINE"
+    : "LOCKED";
 
-  // ==================== MAIN CORTEX UI — ULTRON-INSPIRED CORE ====================
+  // ==================== MAIN CORTEX UI ====================
   return (
     <main className="relative min-h-screen bg-black overflow-hidden flex flex-col items-center justify-center select-none">
       <style>{`
@@ -223,10 +244,8 @@ export default function PersonalAssistantPage() {
         }
       `}</style>
 
-      {/* Ambient background glow */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(220,38,38,0.10)_0%,_transparent_65%)]" />
 
-      {/* Faint scanning grid */}
       <div
         className="absolute inset-0 opacity-[0.04]"
         style={{
@@ -236,7 +255,6 @@ export default function PersonalAssistantPage() {
         }}
       />
 
-      {/* Top status */}
       <div className="absolute top-8 left-0 right-0 text-center z-20">
         <p className="text-red-500 text-xs tracking-[0.5em] font-bold [text-shadow:0_0_10px_rgba(220,38,38,0.8)]">
           C O R T E X
@@ -246,23 +264,23 @@ export default function PersonalAssistantPage() {
         </p>
       </div>
 
-      {/* ========== ULTRON-INSPIRED GLOWING CORE ========== */}
       <button
         onClick={handleCoreTap}
         disabled={listening || busy}
         className="relative z-10 flex items-center justify-center w-72 h-72 disabled:cursor-default"
         aria-label="Tap to speak to CORTEX"
       >
-        {/* Outer atmospheric glow */}
         <div
           className={`absolute w-72 h-72 rounded-full bg-red-600/25 blur-[60px] ${
             listening ? "animate-ping" : ""
           }`}
           style={{ animationDuration: listening ? "1.4s" : undefined }}
         />
-        <div className="absolute w-64 h-64 rounded-full bg-red-500/10 blur-2xl" style={{ animation: "corePulse 3s ease-in-out infinite" }} />
+        <div
+          className="absolute w-64 h-64 rounded-full bg-red-500/10 blur-2xl"
+          style={{ animation: "corePulse 3s ease-in-out infinite" }}
+        />
 
-        {/* Rotating outer mechanical rings */}
         <div
           className="ultron-ring w-64 h-64 border-red-500/25"
           style={{ borderWidth: "1px", animation: "coreRotateSlow 18s linear infinite" }}
@@ -285,7 +303,6 @@ export default function PersonalAssistantPage() {
           style={{ borderWidth: "2px", animation: "coreRotateSlow 9s linear infinite" }}
         />
 
-        {/* Angular metallic plate (Ultron-inspired faceplate) */}
         <div
           className="ultron-plate absolute w-40 h-40 bg-gradient-to-br from-neutral-800 via-black to-neutral-900 shadow-[0_0_40px_rgba(220,38,38,0.35)]"
           style={{ animation: "corePulse 4s ease-in-out infinite" }}
@@ -293,7 +310,6 @@ export default function PersonalAssistantPage() {
           <div className="absolute inset-[6px] ultron-plate bg-gradient-to-br from-red-950 via-black to-neutral-950" />
         </div>
 
-        {/* Glowing central core / "eye" */}
         <div
           className="relative w-24 h-24 rounded-full flex items-center justify-center"
           style={{
@@ -307,7 +323,6 @@ export default function PersonalAssistantPage() {
           <div className="w-8 h-8 rounded-full bg-white/70 blur-[3px]" />
         </div>
 
-        {/* Scanning light sweep */}
         <div className="absolute w-40 h-40 overflow-hidden ultron-plate pointer-events-none">
           <div
             className="absolute left-0 right-0 h-10 bg-gradient-to-b from-transparent via-red-300/40 to-transparent"
@@ -316,7 +331,6 @@ export default function PersonalAssistantPage() {
         </div>
       </button>
 
-      {/* Transcript / reply */}
       <div className="absolute bottom-28 left-0 right-0 z-20 flex flex-col items-center px-6 space-y-2">
         {transcript && (
           <p className="text-xs text-gray-400 max-w-xs text-center">
@@ -338,7 +352,9 @@ export default function PersonalAssistantPage() {
             ? "Listening…"
             : busy
             ? "Processing…"
-            : "Tap the core and speak"}
+            : unlocked
+            ? "Tap the core and speak"
+            : "Locked — say cortex unlock"}
         </p>
       </div>
     </main>
