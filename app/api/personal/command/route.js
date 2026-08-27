@@ -1,7 +1,7 @@
 ﻿import { NextResponse } from "next/server";
 import { requirePersonalOwner } from "../../../lib/personal-owner";
 import { cortexDispatch } from "../../../lib/cortex/client";
-import { askCortexLLM } from "../../../lib/cortex/llm";
+import { askCortexLLM, summarizeCortexResult } from "../../../lib/cortex/llm";
 
 export async function POST(request) {
   const { uid, response } = await requirePersonalOwner(request);
@@ -28,22 +28,19 @@ export async function POST(request) {
   }
 
   try {
-    // 1. LLM se poochho — baat hai ya tool?
     const llm = await askCortexLLM(command);
 
-    // 2. Sirf baat-cheet
     if (llm.type === "chat") {
       return NextResponse.json({
         success: true,
         result: {
           success: true,
           agent: "CORTEX",
-          message: llm.message,
+          message: String(llm.message || "Yes Boss, I am listening."),
         },
       });
     }
 
-    // 3. Real command → existing CORTEX pipeline
     const result = await cortexDispatch({
       task: llm.task || command,
       context: {
@@ -52,25 +49,26 @@ export async function POST(request) {
       },
     });
 
-    // Short human message
-    let message =
-      result?.message ||
-      result?.data?.message ||
-      "Ho gaya bhai.";
+    // The raw CORTEX result (result.data) often holds the real
+    // payload (tournament list, wallet balance, room info, etc.)
+    // nested under result.data.result / result.data - not in
+    // result.message, which is usually a generic "executed
+    // successfully" line. Summarize the real payload through the
+    // LLM so Boss actually hears the data, not the generic line.
+    let message;
 
-    if (
-      typeof message === "string" &&
-      (message.includes("Intent identified") ||
-        message.includes("Unable to identify"))
-    ) {
-      message = result?.success
-        ? "Ho gaya bhai."
-        : "Yeh command abhi support nahi kar raha.";
+    try {
+      const summary = await summarizeCortexResult(
+        command,
+        result?.data ?? result
+      );
+
+      message = summary || result?.message || "Done, Boss.";
+    } catch {
+      message = result?.message || "Done, Boss.";
     }
-
-    // Keep short
-    if (typeof message === "string" && message.length > 120) {
-      message = message.slice(0, 110) + "...";
+    if (typeof message === "string" && message.length > 220) {
+      message = message.slice(0, 210) + "...";
     }
 
     return NextResponse.json({
@@ -82,7 +80,6 @@ export async function POST(request) {
     });
   } catch (error) {
     console.error("Personal command failed:", error);
-
     return NextResponse.json(
       {
         success: false,

@@ -1,75 +1,142 @@
-const GEMINI_API_KEY = process.env.CORTEX_GEMINI_API_KEY || "";
-const GEMINI_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+const GROQ_API_KEY = (process.env.CORTEX_GROQ_API_KEY || "").trim();
 
-const SYSTEM_PROMPT = `Tu CORTEX hai — Battle Crown esports platform ka AI assistant.
+const SYSTEM_PROMPT = `You are CORTEX, an advanced AI for Battle Crown esports.
 
-Rules:
-1. Hamesha SHORT reply de (1-2 lines max).
-2. Hinglish mein bol (natural, jaise dost se baat).
-3. Agar user sirf baat kar raha hai (hello, kaise ho, thanks, joke, general sawal) → normal reply de.
-4. Agar user KOI REAL KAAM maang raha hai (tournament, player, wallet, room, match, notification, security, code) → JSON return kar.
+Personality:
+- Address the user as "Boss".
+- Speak with respect, calm and confident.
+- Always reply in complete sentences (never 1-2 words only).
+- Short but full: 1 to 2 complete sentences max.
+- Hinglish is fine, but clear and smooth.
 
-JSON format (sirf tool ke liye):
-{"type":"tool","task":"user ka clear English/Hinglish command"}
+If user wants a real app action (tournament, wallet, player, room, match, notification, security), reply EXACTLY:
+TOOL: <command in english>
+
+Otherwise reply with only the spoken answer. No labels, no JSON, no rules text.
 
 Examples:
-- "hello" → {"type":"chat","message":"Haan bhai, bol kya kaam hai?"}
-- "kaise ho" → {"type":"chat","message":"Sab badhiya. Tu bata."}
-- "tournament check kar" → {"type":"tool","task":"Check Tournament"}
-- "wallet balance batao" → {"type":"tool","task":"Check wallet balance"}
-- "FF ka tournament 9 baje live kar de" → {"type":"tool","task":"Create and start Free Fire tournament at 9 PM"}
+User: hello
+Hello Boss. CORTEX is online. How may I assist you?
 
-Sirf JSON ya short chat message return kar. Extra bakwas mat likh.`;
+User: kaise ho
+I am fully operational, Boss. What would you like me to do?
+
+User: tournament check kar
+TOOL: Check Tournament
+`;
 
 export async function askCortexLLM(userText) {
-  if (!GEMINI_API_KEY) {
-    throw new Error("GEMINI_API_KEY is not configured.");
+  if (!GROQ_API_KEY) {
+    throw new Error("CORTEX_GROQ_API_KEY is missing. Set it in env.");
   }
 
-  const response = await fetch(`\( {GEMINI_URL}?key= \){GEMINI_API_KEY}`, {
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+    },
     body: JSON.stringify({
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: `${SYSTEM_PROMPT}\n\nUser: ${userText}` }],
-        },
+      model: "openai/gpt-oss-20b",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userText },
       ],
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 150,
-      },
+      temperature: 0.7,
+      max_tokens: 150,
     }),
   });
 
   if (!response.ok) {
     const errText = await response.text();
-    throw new Error(`Gemini error: ${response.status} ${errText.slice(0, 200)}`);
+
+    // Soft message if quota ends again
+    if (response.status === 429) {
+      return {
+        type: "chat",
+        message:
+          "Boss, my language core is cooling down due to high usage. Please try again in a minute.",
+      };
+    }
+
+    throw new Error(`Groq error ${response.status}: ${errText.slice(0, 250)}`);
   }
 
   const data = await response.json();
-  const raw =
-    data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+  let raw = data?.choices?.[0]?.message?.content?.trim() || "";
 
   if (!raw) {
-    return { type: "chat", message: "Kuch samajh nahi aaya bhai." };
+    return { type: "chat", message: "I did not catch that, Boss." };
   }
 
-  // Try parse JSON tool call
-  try {
-    const cleaned = raw.replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(cleaned);
-    if (parsed?.type === "tool" && parsed?.task) {
-      return { type: "tool", task: String(parsed.task).trim() };
-    }
-    if (parsed?.type === "chat" && parsed?.message) {
-      return { type: "chat", message: String(parsed.message).trim() };
-    }
-  } catch {
-    // not JSON → treat as chat
+  raw = raw.replace(/```/g, "").trim();
+
+  const toolMatch = raw.match(/^TOOL\s*:\s*(.+)$/i);
+  if (toolMatch) {
+    return { type: "tool", task: toolMatch[1].trim() };
   }
 
-  return { type: "chat", message: raw.slice(0, 200) };
+  let message = raw
+    .replace(/^CORTEX\s*:\s*/i, "")
+    .trim();
+
+  if (!message) message = "Yes Boss, I am listening.";
+
+  return { type: "chat", message: message.slice(0, 220) };
+}
+
+// ============================================================
+// SUMMARIZE RAW TOOL DATA INTO A NATURAL SPOKEN REPLY
+// ============================================================
+
+const SUMMARY_SYSTEM_PROMPT = `You are CORTEX, an AI assistant for Battle Crown esports.
+
+You will be given raw JSON data returned by a backend tool. Your ONLY job is to describe that data to "Boss" in 1-2 short, clear spoken sentences, in Hinglish, using the actual values (names, counts, statuses, balances, IDs) found in the JSON.
+
+Rules:
+- Do NOT say "TOOL:" - you are not choosing an action here.
+- Do NOT invent data that is not in the JSON.
+- Do NOT talk about activation, systems booting, or anything sci-fi/flavor-text. Just report the facts plainly and politely.
+- If the JSON shows an error or empty/no data, say so plainly (e.g. "Boss, koi tournament nahi mila abhi.").
+- Address the user as "Boss".
+`;
+
+export async function summarizeCortexResult(userCommand, rawData) {
+  if (!GROQ_API_KEY) {
+    throw new Error("CORTEX_GROQ_API_KEY is missing. Set it in env.");
+  }
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "openai/gpt-oss-20b",
+      messages: [
+        { role: "system", content: SUMMARY_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: `User asked: "${userCommand}"\n\nRaw JSON result:\n${JSON.stringify(
+            rawData
+          ).slice(0, 1500)}`,
+        },
+      ],
+      temperature: 0.3,
+      max_tokens: 150,
+    }),
+  });
+
+  if (!response.ok) {
+    if (response.status === 429) {
+      return "Boss, my language core is cooling down due to high usage. Please try again in a minute.";
+    }
+    throw new Error(`Groq summary error ${response.status}`);
+  }
+
+  const data = await response.json();
+  const raw = data?.choices?.[0]?.message?.content?.trim() || "";
+
+  return raw ? raw.slice(0, 220) : null;
 }

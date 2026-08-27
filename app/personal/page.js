@@ -1,8 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { auth } from "../lib/firebase";
-import { onAuthStateChanged } from "firebase/auth";
+import {
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+
+import {
+  auth,
+} from "../lib/firebase";
+
+import {
+  onAuthStateChanged,
+} from "firebase/auth";
+
+import CortexCore from "./CortexCore";
+
+const ACTIVATION_DURATION = 60000;
 
 export default function PersonalAssistantPage() {
   const [state, setState] = useState({
@@ -12,349 +26,824 @@ export default function PersonalAssistantPage() {
     firebaseUid: "",
   });
 
-  const [listening, setListening] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [transcript, setTranscript] = useState("");
-  const [reply, setReply] = useState("");
-  const [unlocked, setUnlocked] = useState(false);
+  const [listening, setListening] =
+    useState(false);
 
-  const recognitionRef = useRef(null);
-  const idTokenRef = useRef(null);
-  const unlockedRef = useRef(false); // fixes stale closure
+  const [busy, setBusy] =
+    useState(false);
 
-  // keep ref in sync
+  const [transcript, setTranscript] =
+    useState("");
+
+  const [reply, setReply] =
+    useState("");
+
+  const [unlocked, setUnlocked] =
+    useState(false);
+
+  const [phase, setPhase] =
+    useState(0);
+
+  const recognitionRef =
+    useRef(null);
+
+  const idTokenRef =
+    useRef(null);
+
+  const unlockedRef =
+    useRef(false);
+
+  const phaseRef =
+    useRef(0);
+
+  // --------------------------------------------------
+  // KEEP REFS SYNCHRONIZED
+  //
+  // sendCommand() is captured ONCE inside the speech
+  // recognition useEffect ([] deps, mount-only), so any
+  // plain state var it reads (like `phase`) is frozen at
+  // whatever value it had at mount. Refs stay live across
+  // renders without re-creating the recognition object,
+  // so we mirror both `unlocked` and `phase` into refs and
+  // read the refs inside sendCommand instead of the state.
+  // --------------------------------------------------
+
   useEffect(() => {
-    unlockedRef.current = unlocked;
+    unlockedRef.current =
+      unlocked;
   }, [unlocked]);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (!user) {
-        setState({
-          loading: false,
-          message: "Sign in with your Battle Crown account first.",
-          ownerVerified: false,
-          firebaseUid: "",
-        });
-        return;
+    phaseRef.current =
+      phase;
+  }, [phase]);
+
+  // --------------------------------------------------
+  // 60 SECOND CINEMATIC ACTIVATION
+  //
+  // Wall-clock based instead of a chain of setTimeouts.
+  // The unlock timestamp is persisted in sessionStorage,
+  // so if this component remounts mid-activation (Fast
+  // Refresh in dev, a parent re-render, a tab that was
+  // backgrounded and throttled timers, etc.) the
+  // countdown RESUMES from where it was instead of
+  // silently restarting at 0 — which was the original
+  // bug: phase kept getting reset to 0 before it ever
+  // reached 6, so every command hit the
+  // "Activation in progress" branch forever.
+  //
+  // 0–10   Core awakening      (phase 1)
+  // 10–20  Fusion ignition     (phase 2)
+  // 20–30  Ring 1              (phase 3)
+  // 30–40  Ring 2              (phase 4)
+  // 40–50  Ring 3              (phase 5)
+  // 50–60  Ring 4 / final pulse (phase 6 = ACTIVATED)
+  // --------------------------------------------------
+
+  useEffect(() => {
+    if (!unlocked) {
+      setPhase(0);
+
+      try {
+        sessionStorage.removeItem(
+          "cortex_unlock_ts"
+        );
+      } catch {
+        // sessionStorage may be unavailable (SSR/private mode) — ignore.
       }
 
-      user.getIdToken().then(async (token) => {
-        idTokenRef.current = token;
-        try {
-          const response = await fetch("/api/personal/status", {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          const payload = await response.json();
+      return;
+    }
 
-          setState({
-            loading: false,
-            message: payload.success
-              ? "CORTEX Online"
-              : payload.error || "Secure access check failed.",
-            ownerVerified: Boolean(payload.success),
-            firebaseUid: user.uid,
-          });
-        } catch {
-          setState({
-            loading: false,
-            message: "Secure access check failed.",
-            ownerVerified: false,
-            firebaseUid: user.uid,
-          });
+    let startTs = null;
+
+    try {
+      startTs = Number(
+        sessionStorage.getItem(
+          "cortex_unlock_ts"
+        )
+      );
+    } catch {
+      startTs = null;
+    }
+
+    if (!startTs) {
+      startTs = Date.now();
+
+      try {
+        sessionStorage.setItem(
+          "cortex_unlock_ts",
+          String(startTs)
+        );
+      } catch {
+        // If we can't persist it, activation still works for this
+        // mount — it just won't survive a remount.
+      }
+    }
+
+    const tick = () => {
+      const elapsed =
+        Date.now() - startTs;
+
+      const newPhase = Math.min(
+        6,
+        Math.floor(
+          elapsed / 10000
+        )
+      );
+
+      setPhase((prev) => {
+        if (newPhase !== prev) {
+          console.log(
+            "[CORTEX] phase ->",
+            newPhase,
+            "elapsed:",
+            elapsed
+          );
         }
+
+        return newPhase;
       });
-    });
+
+      if (newPhase >= 6) {
+        setReply(
+          "CORTEX ACTIVATED."
+        );
+
+        speak(
+          "CORTEX ACTIVATED."
+        );
+
+        return true;
+      }
+
+      return false;
+    };
+
+    // Run once immediately in case we're resuming past
+    // ACTIVATION_DURATION already (e.g. remounted late).
+    const doneImmediately =
+      tick();
+
+    if (doneImmediately) {
+      return;
+    }
+
+    const interval = setInterval(
+      () => {
+        const done = tick();
+
+        if (done) {
+          clearInterval(interval);
+        }
+      },
+      500
+    );
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [unlocked]);
+
+  // --------------------------------------------------
+  // FIREBASE OWNER VERIFICATION
+  // --------------------------------------------------
+
+  useEffect(() => {
+    const unsubscribe =
+      onAuthStateChanged(
+        auth,
+        (user) => {
+          if (!user) {
+            setState({
+              loading: false,
+              message:
+                "Sign in with your Battle Crown account first.",
+              ownerVerified: false,
+              firebaseUid: "",
+            });
+
+            return;
+          }
+
+          user
+            .getIdToken()
+            .then(async (token) => {
+              idTokenRef.current =
+                token;
+
+              try {
+                const response =
+                  await fetch(
+                    "/api/personal/status",
+                    {
+                      headers: {
+                        Authorization:
+                          `Bearer ${token}`,
+                      },
+                    }
+                  );
+
+                const payload =
+                  await response.json();
+
+                setState({
+                  loading: false,
+
+                  message:
+                    payload.success
+                      ? "CORTEX Online"
+                      : payload.error ||
+                        "Secure access check failed.",
+
+                  ownerVerified:
+                    Boolean(
+                      payload.success
+                    ),
+
+                  firebaseUid:
+                    user.uid,
+                });
+              } catch {
+                setState({
+                  loading: false,
+                  message:
+                    "Secure access check failed.",
+                  ownerVerified: false,
+                  firebaseUid:
+                    user.uid,
+                });
+              }
+            })
+            .catch(() => {
+              setState({
+                loading: false,
+                message:
+                  "Authentication token failed.",
+                ownerVerified: false,
+                firebaseUid:
+                  user.uid,
+              });
+            });
+        }
+      );
 
     return unsubscribe;
   }, []);
 
+  // --------------------------------------------------
+  // SPEECH RECOGNITION
+  // --------------------------------------------------
+
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (
+      typeof window ===
+      "undefined"
+    ) {
+      return;
+    }
 
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
+    const SR =
+      window.SpeechRecognition ||
+      window.webkitSpeechRecognition;
 
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = "en-IN";
+    if (!SR) {
+      return;
+    }
 
-    recognition.onresult = (event) => {
-      const text = event.results[0][0].transcript;
-      setTranscript(text);
-      sendCommand(text);
+    const recognition =
+      new SR();
+
+    recognition.continuous =
+      false;
+
+    recognition.interimResults =
+      false;
+
+    recognition.lang =
+      "en-IN";
+
+    recognition.onresult =
+      (event) => {
+        const text =
+          event.results[0][0]
+            .transcript;
+
+        setTranscript(text);
+
+        sendCommand(text);
+      };
+
+    recognition.onerror =
+      () => {
+        setListening(false);
+      };
+
+    recognition.onend =
+      () => {
+        setListening(false);
+      };
+
+    recognitionRef.current =
+      recognition;
+
+    return () => {
+      try {
+        recognition.stop();
+      } catch {
+        // Ignore stop errors.
+      }
     };
-
-    recognition.onerror = () => setListening(false);
-    recognition.onend = () => setListening(false);
-
-    recognitionRef.current = recognition;
   }, []);
 
+  // --------------------------------------------------
+  // SPEAK
+  // --------------------------------------------------
+
   function speak(text) {
-    if (typeof window === "undefined" || !window.speechSynthesis) return;
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "en-IN";
+    if (
+      typeof window ===
+      "undefined"
+    ) {
+      return;
+    }
+
+    if (
+      !window.speechSynthesis
+    ) {
+      return;
+    }
+
+    if (!text?.trim()) {
+      return;
+    }
+
     window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
+
+    const utterance =
+      new SpeechSynthesisUtterance(
+        String(text).trim()
+      );
+
+    utterance.lang =
+      "en-US";
+
+    utterance.rate =
+      0.82;
+
+    utterance.pitch =
+      0.48;
+
+    utterance.volume =
+      1;
+
+    const voices =
+      window.speechSynthesis
+        .getVoices();
+
+    const preferred =
+      voices.find(
+        (voice) =>
+          /david|mark|guy|alex|daniel/i.test(
+            voice.name
+          ) &&
+          voice.lang.startsWith(
+            "en"
+          )
+      );
+
+    const american =
+      voices.find(
+        (voice) =>
+          voice.lang ===
+          "en-US"
+      );
+
+    const english =
+      voices.find(
+        (voice) =>
+          voice.lang.startsWith(
+            "en"
+          )
+      );
+
+    const selectedVoice =
+      preferred ||
+      american ||
+      english;
+
+    if (selectedVoice) {
+      utterance.voice =
+        selectedVoice;
+    }
+
+    window.speechSynthesis.speak(
+      utterance
+    );
   }
+
+  // --------------------------------------------------
+  // CORE TAP
+  // --------------------------------------------------
 
   function handleCoreTap() {
-    if (!recognitionRef.current || listening || busy) return;
+    if (
+      !recognitionRef.current ||
+      listening ||
+      busy
+    ) {
+      return;
+    }
+
+    if (
+      unlocked &&
+      phase < 6
+    ) {
+      return;
+    }
+
     setTranscript("");
     setReply("");
+
     setListening(true);
-    recognitionRef.current.start();
+
+    try {
+      recognitionRef.current.start();
+    } catch {
+      setListening(false);
+    }
   }
 
-  async function sendCommand(commandText) {
-    if (!idTokenRef.current || !commandText.trim()) return;
+  // --------------------------------------------------
+  // COMMAND PROCESSING
+  // --------------------------------------------------
 
-    const text = commandText.trim().toLowerCase();
-    const UNLOCK_PHRASE = "cortex unlock";
+  async function sendCommand(
+    commandText
+  ) {
+    if (
+      !idTokenRef.current ||
+      !commandText?.trim()
+    ) {
+      return;
+    }
 
-    // ========== VOICE PIN (Step 1) ==========
+    const text =
+      commandText
+        .trim()
+        .toLowerCase();
+
+    // ----------------------------------------------
+    // LOCKED STATE
+    // ----------------------------------------------
+
     if (!unlockedRef.current) {
-      if (text === UNLOCK_PHRASE || text.includes("cortex unlock")) {
-        unlockedRef.current = true;
+      if (
+        text.includes(
+          "cortex unlock"
+        ) ||
+        text.includes(
+          "cortex, unlock"
+        )
+      ) {
+        unlockedRef.current =
+          true;
+
         setUnlocked(true);
-        setReply("Unlocked. Ab boliye kya kaam hai.");
-        speak("Unlocked. Ab boliye kya kaam hai.");
+
+        setPhase(0);
+
+        setReply(
+          "Activation sequence initiated."
+        );
+
+        // IMPORTANT:
+        // Do NOT speak here.
+        //
+        // CORTEX will remain silent
+        // during the entire 60-second
+        // cinematic activation.
+        //
+        // Voice occurs only at phase 6.
+
         return;
       }
 
-      setReply("Pehle unlock karo. Bolo: cortex unlock");
-      speak("Pehle unlock karo. Bolo cortex unlock");
+      setReply(
+        "Access denied. Say: cortex unlock"
+      );
+
+      speak(
+        "Access denied. Say cortex unlock"
+      );
+
       return;
     }
 
-    // Optional: re-lock
-    if (text === "cortex lock" || text.includes("lock cortex")) {
-      unlockedRef.current = false;
+    // ----------------------------------------------
+    // ACTIVATING
+    // ----------------------------------------------
+
+    if (phaseRef.current < 6) {
+      setReply(
+        "Activation in progress. Stand by, Boss."
+      );
+
+      return;
+    }
+
+    // ----------------------------------------------
+    // LOCK
+    // ----------------------------------------------
+
+    if (
+      text.includes(
+        "cortex lock"
+      ) ||
+      text.includes(
+        "cortex, lock"
+      )
+    ) {
+      unlockedRef.current =
+        false;
+
       setUnlocked(false);
-      setReply("Locked.");
-      speak("Locked.");
+
+      setPhase(0);
+
+      setReply(
+        "Systems locked."
+      );
+
+      speak(
+        "Systems locked."
+      );
+
       return;
     }
 
-    // ========== NORMAL COMMAND ==========
-    setBusy(true);
-    try {
-      const response = await fetch("/api/personal/command", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${idTokenRef.current}`,
-        },
-        body: JSON.stringify({ command: commandText }),
-      });
+    // ----------------------------------------------
+    // NORMAL CORTEX COMMAND
+    // ----------------------------------------------
 
-      const payload = await response.json();
+    setBusy(true);
+
+    try {
+      const response =
+        await fetch(
+          "/api/personal/command",
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+
+              Authorization:
+                `Bearer ${idTokenRef.current}`,
+            },
+
+            body: JSON.stringify({
+              command:
+                commandText,
+            }),
+          }
+        );
+
+      const payload =
+        await response.json();
 
       if (!payload.success) {
-        const errMsg = payload.error || "Command failed.";
-        setReply(`Error: ${errMsg}`);
-        speak("Sorry, that command failed.");
+        const errorMessage =
+          `Error: ${
+            payload.error ||
+            "Command failed."
+          }`;
+
+        setReply(
+          errorMessage
+        );
+
+        speak(
+          "Command failed, Boss."
+        );
+
         return;
       }
 
       const spoken =
         payload.result?.message ||
         payload.result?.data?.message ||
-        "Done.";
-      setReply(spoken);
-      speak(spoken);
+        "Done, Boss.";
+
+      const clean =
+        String(spoken).trim();
+
+      setReply(clean);
+
+      speak(clean);
     } catch (error) {
-      setReply(`Error: ${error.message}`);
-      speak("Sorry, something went wrong.");
+      const message =
+        error?.message ||
+        "Something went wrong.";
+
+      setReply(
+        `Error: ${message}`
+      );
+
+      speak(
+        "Something went wrong, Boss."
+      );
     } finally {
       setBusy(false);
     }
   }
 
-  // ==================== LOADING / NOT VERIFIED ====================
-  if (state.loading || !state.ownerVerified) {
+  // --------------------------------------------------
+  // LOADING / ACCESS SCREEN
+  // --------------------------------------------------
+
+  if (
+    state.loading ||
+    !state.ownerVerified
+  ) {
     return (
       <main className="min-h-screen bg-black flex items-center justify-center p-6">
         <div className="text-center">
-          <p className="text-red-500 text-sm tracking-widest mb-3">
+          <p className="text-red-500 text-sm tracking-[0.4em] mb-3">
             PERSONAL COMMAND CENTER
           </p>
-          <p className="text-gray-300 text-sm">{state.message}</p>
-          {state.firebaseUid && !state.ownerVerified && (
-            <p className="mt-4 text-xs text-gray-600 break-all max-w-xs mx-auto">
-              UID: {state.firebaseUid}
-            </p>
-          )}
+
+          <p className="text-gray-300 text-sm">
+            {state.message}
+          </p>
         </div>
       </main>
     );
   }
 
-  const activityLabel = listening
-    ? "LISTENING"
-    : busy
-    ? "PROCESSING"
-    : unlocked
-    ? "ONLINE"
-    : "LOCKED";
+  // --------------------------------------------------
+  // STATUS
+  // --------------------------------------------------
 
-  // ==================== MAIN CORTEX UI ====================
+  const full =
+    phase >= 6;
+
+  const activityLabel =
+    !unlocked
+      ? "LOCKED"
+      : phase < 6
+      ? "ACTIVATING"
+      : listening
+      ? "LISTENING"
+      : busy
+      ? "PROCESSING"
+      : "ONLINE";
+
   return (
     <main className="relative min-h-screen bg-black overflow-hidden flex flex-col items-center justify-center select-none">
-      <style>{`
-        @keyframes coreRotateSlow {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        @keyframes coreRotateReverse {
-          from { transform: rotate(360deg); }
-          to { transform: rotate(0deg); }
-        }
-        @keyframes corePulse {
-          0%, 100% { transform: scale(1); opacity: 0.9; }
-          50% { transform: scale(1.06); opacity: 1; }
-        }
-        @keyframes coreFlicker {
-          0%, 100% { opacity: 1; }
-          45% { opacity: 0.85; }
-          50% { opacity: 1; }
-          55% { opacity: 0.7; }
-          60% { opacity: 1; }
-        }
-        @keyframes scanline {
-          0% { transform: translateY(-100%); opacity: 0; }
-          10% { opacity: 0.6; }
-          90% { opacity: 0.6; }
-          100% { transform: translateY(100%); opacity: 0; }
-        }
-        .ultron-ring {
-          position: absolute;
-          border-radius: 9999px;
-          border-style: solid;
-        }
-        .ultron-plate {
-          clip-path: polygon(
-            50% 0%, 80% 10%, 100% 35%, 100% 65%,
-            80% 90%, 50% 100%, 20% 90%, 0% 65%,
-            0% 35%, 20% 10%
-          );
-        }
-      `}</style>
-
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_rgba(220,38,38,0.10)_0%,_transparent_65%)]" />
+      {/* ------------------------------------------------
+          CINEMATIC BACKGROUND
+      ------------------------------------------------ */}
 
       <div
-        className="absolute inset-0 opacity-[0.04]"
+        className="absolute inset-0 pointer-events-none"
         style={{
-          backgroundImage:
-            "linear-gradient(rgba(255,0,0,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,0,0,0.6) 1px, transparent 1px)",
-          backgroundSize: "40px 40px",
+          background:
+            phase >= 1
+              ? `
+                radial-gradient(
+                  circle at center,
+                  rgba(150,0,0,${
+                    0.05 +
+                    phase * 0.018
+                  }) 0%,
+                  rgba(70,0,0,0.035) 30%,
+                  transparent 67%
+                )
+              `
+              : `
+                radial-gradient(
+                  circle at center,
+                  rgba(30,0,0,0.035) 0%,
+                  transparent 60%
+                )
+              `,
+          transition:
+            "background 2s ease",
         }}
       />
 
-      <div className="absolute top-8 left-0 right-0 text-center z-20">
-        <p className="text-red-500 text-xs tracking-[0.5em] font-bold [text-shadow:0_0_10px_rgba(220,38,38,0.8)]">
+      {/* Atmospheric vignette */}
+
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            "radial-gradient(circle, transparent 30%, rgba(0,0,0,0.68) 100%)",
+        }}
+      />
+
+      {/* ------------------------------------------------
+          HEADER
+      ------------------------------------------------ */}
+
+      <div className="absolute top-8 left-0 right-0 text-center z-30 pointer-events-none">
+        <p
+          className="text-red-500 text-xs tracking-[0.55em] font-bold"
+          style={{
+            textShadow:
+              "0 0 12px rgba(220,38,38,0.85)",
+          }}
+        >
           C O R T E X
         </p>
-        <p className="text-gray-500 text-[10px] mt-2 tracking-[0.3em]">
+
+        <p
+          className={`text-[10px] mt-2 tracking-[0.35em] ${
+            unlocked
+              ? "text-red-400/80"
+              : "text-gray-600"
+          }`}
+        >
           {activityLabel}
         </p>
       </div>
 
+      {/* ------------------------------------------------
+          WEBGL CORE
+      ------------------------------------------------ */}
+
       <button
+        type="button"
         onClick={handleCoreTap}
-        disabled={listening || busy}
-        className="relative z-10 flex items-center justify-center w-72 h-72 disabled:cursor-default"
-        aria-label="Tap to speak to CORTEX"
+        disabled={
+          listening ||
+          busy ||
+          (unlocked &&
+            phase < 6)
+        }
+        aria-label="Cortex Core"
+        className="relative z-20 flex items-center justify-center focus:outline-none disabled:cursor-default"
+        style={{
+          width: "min(92vw, 620px)",
+          height: "min(92vw, 620px)",
+          minHeight: "360px",
+          minWidth: "360px",
+          maxWidth: "620px",
+          maxHeight: "620px",
+          perspective:
+            "1200px",
+        }}
       >
-        <div
-          className={`absolute w-72 h-72 rounded-full bg-red-600/25 blur-[60px] ${
-            listening ? "animate-ping" : ""
-          }`}
-          style={{ animationDuration: listening ? "1.4s" : undefined }}
+        <CortexCore
+          phase={phase}
+          unlocked={unlocked}
+          listening={listening}
         />
-        <div
-          className="absolute w-64 h-64 rounded-full bg-red-500/10 blur-2xl"
-          style={{ animation: "corePulse 3s ease-in-out infinite" }}
-        />
-
-        <div
-          className="ultron-ring w-64 h-64 border-red-500/25"
-          style={{ borderWidth: "1px", animation: "coreRotateSlow 18s linear infinite" }}
-        >
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_2px_rgba(220,38,38,0.9)]" />
-          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-1.5 h-1.5 rounded-full bg-red-500/70 shadow-[0_0_6px_2px_rgba(220,38,38,0.7)]" />
-        </div>
-
-        <div
-          className="ultron-ring w-56 h-56 border-red-600/20"
-          style={{
-            borderWidth: "1px",
-            borderStyle: "dashed",
-            animation: "coreRotateReverse 12s linear infinite",
-          }}
-        />
-
-        <div
-          className="ultron-ring w-48 h-48 border-red-400/30"
-          style={{ borderWidth: "2px", animation: "coreRotateSlow 9s linear infinite" }}
-        />
-
-        <div
-          className="ultron-plate absolute w-40 h-40 bg-gradient-to-br from-neutral-800 via-black to-neutral-900 shadow-[0_0_40px_rgba(220,38,38,0.35)]"
-          style={{ animation: "corePulse 4s ease-in-out infinite" }}
-        >
-          <div className="absolute inset-[6px] ultron-plate bg-gradient-to-br from-red-950 via-black to-neutral-950" />
-        </div>
-
-        <div
-          className="relative w-24 h-24 rounded-full flex items-center justify-center"
-          style={{
-            background:
-              "radial-gradient(circle at 35% 30%, rgba(255,140,120,0.95), rgba(220,38,38,0.9) 40%, rgba(120,10,10,0.95) 70%, black 100%)",
-            boxShadow:
-              "0 0 25px 6px rgba(220,38,38,0.75), 0 0 60px 20px rgba(220,38,38,0.35), inset 0 0 20px rgba(0,0,0,0.6)",
-            animation: "coreFlicker 2.5s ease-in-out infinite",
-          }}
-        >
-          <div className="w-8 h-8 rounded-full bg-white/70 blur-[3px]" />
-        </div>
-
-        <div className="absolute w-40 h-40 overflow-hidden ultron-plate pointer-events-none">
-          <div
-            className="absolute left-0 right-0 h-10 bg-gradient-to-b from-transparent via-red-300/40 to-transparent"
-            style={{ animation: "scanline 2.6s linear infinite" }}
-          />
-        </div>
       </button>
 
-      <div className="absolute bottom-28 left-0 right-0 z-20 flex flex-col items-center px-6 space-y-2">
+      {/* ------------------------------------------------
+          TRANSCRIPT / REPLY
+      ------------------------------------------------ */}
+
+      <div className="absolute bottom-28 left-0 right-0 z-30 flex flex-col items-center px-6 space-y-2 pointer-events-none">
         {transcript && (
           <p className="text-xs text-gray-400 max-w-xs text-center">
-            <span className="text-red-500 font-semibold">You: </span>
+            <span className="text-red-500 font-semibold">
+              You:
+            </span>{" "}
             {transcript}
           </p>
         )}
+
         {reply && (
-          <p className="text-xs text-gray-200 max-w-xs text-center">
-            <span className="text-red-500 font-semibold">CORTEX: </span>
+          <p className="text-xs text-gray-200 max-w-sm text-center">
+            <span className="text-red-500 font-semibold">
+              CORTEX:
+            </span>{" "}
             {reply}
           </p>
         )}
       </div>
 
-      <div className="absolute bottom-14 left-0 right-0 text-center z-20">
+      {/* ------------------------------------------------
+          BOTTOM STATUS
+      ------------------------------------------------ */}
+
+      <div className="absolute bottom-14 left-0 right-0 text-center z-30 pointer-events-none">
         <p className="text-gray-500 text-xs tracking-[0.2em]">
-          {listening
+          {!unlocked
+            ? "Locked — say cortex unlock"
+            : phase < 6
+            ? "Activation sequence in progress…"
+            : listening
             ? "Listening…"
             : busy
             ? "Processing…"
-            : unlocked
+            : full
             ? "Tap the core and speak"
-            : "Locked — say cortex unlock"}
+            : ""}
         </p>
       </div>
     </main>
