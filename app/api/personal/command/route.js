@@ -1,7 +1,7 @@
 ﻿import { NextResponse } from "next/server";
 import { requirePersonalOwner } from "../../../lib/personal-owner";
-import { cortexDispatch } from "../../../../src/lib/cortex/client";
-import { askCortexLLM } from "../../../../src/lib/cortex/llm";
+import { cortexDispatch } from "../../../lib/cortex/client";
+import { askCortexLLM } from "../../../lib/cortex/llm";
 
 export async function POST(request) {
   const { uid, response } = await requirePersonalOwner(request);
