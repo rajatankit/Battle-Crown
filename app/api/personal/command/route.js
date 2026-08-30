@@ -65,9 +65,18 @@ export async function POST(request) {
 
     // ============================================
     // 3) REAL TOOL / WORK → CORTEX bridge
+    //
+    // llm.agent_id / llm.action come from the structured
+    // "TOOL: AGENT_ID:action" output produced by askCortexLLM.
+    // Passing these directly lets the Python backend route
+    // through orchestrator.dispatch() instead of falling back
+    // to free-text IntentEngine matching (which does not
+    // understand English LLM phrasing).
     // ============================================
     const result = await cortexDispatch({
-      task: llm.task || command,
+      agentId: llm.agent_id,
+      action: llm.action,
+      task: command,
       context: {
         source: "personal_voice",
         uid,

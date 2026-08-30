@@ -24,10 +24,34 @@ or SWITCH: NOVA
 or SWITCH: ATLAS
 or SWITCH: SENTINEL
 
-2) If user wants a REAL ACTION (create tournament, check wallet, room, match, etc.), reply ONLY:
-TOOL: <clear english command>
+2) If user wants a REAL ACTION, reply ONLY in this exact format:
+TOOL: AGENT_ID:action
 
-3) Normal chat → reply with only the spoken answer. No labels, no JSON.
+Only use these exact AGENT_ID:action pairs (never invent new ones):
+ARIA:create_tournament
+ARIA:manage_tournament
+ARIA:read_tournament
+ELARA:update_player_data
+ELARA:read_player_data
+LYRA:send_notification
+VAULT:store_room_data
+VAULT:update_room_data
+VAULT:read_room_data
+ORION:manage_match
+ORION:read_match_data
+NOVA:report_suspicious_transaction
+NOVA:validate_transaction
+NOVA:read_deposit_status
+NOVA:read_withdrawal_status
+NOVA:read_transaction
+NOVA:read_wallet
+ATLAS:modify_code
+ATLAS:read_code
+SENTINEL:security_action
+SENTINEL:security_scan
+SENTINEL:read_security_logs
+
+3) Normal chat -> reply with only the spoken answer. No labels, no JSON.
 
 Examples:
 User: nova se baat karwa
@@ -40,10 +64,19 @@ User: sentinel se baat
 SWITCH: SENTINEL
 
 User: tournament live kar de
-TOOL: Create and start tournament
+TOOL: ARIA:create_tournament
+
+User: naya tournament banao
+TOOL: ARIA:create_tournament
 
 User: wallet balance
-TOOL: Check wallet balance
+TOOL: NOVA:read_wallet
+
+User: room bana do
+TOOL: VAULT:store_room_data
+
+User: match result update karo
+TOOL: ORION:manage_match
 
 User: kaise ho
 I am fully operational, Boss. How may I assist you?
@@ -59,6 +92,31 @@ const AGENTS = [
   "ATLAS",
   "SENTINEL",
 ];
+
+const VALID_TOOL_PAIRS = new Set([
+  "ARIA:create_tournament",
+  "ARIA:manage_tournament",
+  "ARIA:read_tournament",
+  "ELARA:update_player_data",
+  "ELARA:read_player_data",
+  "LYRA:send_notification",
+  "VAULT:store_room_data",
+  "VAULT:update_room_data",
+  "VAULT:read_room_data",
+  "ORION:manage_match",
+  "ORION:read_match_data",
+  "NOVA:report_suspicious_transaction",
+  "NOVA:validate_transaction",
+  "NOVA:read_deposit_status",
+  "NOVA:read_withdrawal_status",
+  "NOVA:read_transaction",
+  "NOVA:read_wallet",
+  "ATLAS:modify_code",
+  "ATLAS:read_code",
+  "SENTINEL:security_action",
+  "SENTINEL:security_scan",
+  "SENTINEL:read_security_logs",
+]);
 
 function parseLLMOutput(raw) {
   let text = String(raw || "")
@@ -76,12 +134,29 @@ function parseLLMOutput(raw) {
     };
   }
 
-  // TOOL: ...
-  const toolMatch = text.match(/^TOOL\s*:\s*(.+)$/i);
+  // TOOL: AGENT_ID:action
+  const toolMatch = text.match(
+    /^TOOL\s*:\s*([A-Z]+)\s*:\s*([a-z_]+)/i
+  );
   if (toolMatch) {
+    const agentId = toolMatch[1].toUpperCase();
+    const action = toolMatch[2].toLowerCase();
+    const pairKey = `${agentId}:${action}`;
+
+    if (VALID_TOOL_PAIRS.has(pairKey)) {
+      return {
+        type: "tool",
+        agent_id: agentId,
+        action: action,
+      };
+    }
+
+    // Model returned an agent/action pair that isn't in our
+    // known list. Fall through to chat instead of dispatching
+    // something the backend will reject anyway.
     return {
-      type: "tool",
-      task: toolMatch[1].trim(),
+      type: "chat",
+      message: "Boss, yeh command abhi supported nahi hai.",
     };
   }
 
