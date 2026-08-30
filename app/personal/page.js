@@ -244,8 +244,81 @@ export default function PersonalAssistantPage() {
                     }
                   );
 
-                const payload =
-                  await response.json();
+                const payload = await response.json();
+
+      // ========== BIOMETRIC APPROVAL ==========
+      if (
+        payload?.requires_approval ||
+        payload?.result?.requires_approval ||
+        payload?.error === "approval_required" ||
+        String(payload?.result?.message || "")
+          .toLowerCase()
+          .includes("approve")
+      ) {
+        const risk =
+          payload?.risk ||
+          payload?.result?.risk ||
+          "medium"; // medium | high
+
+        try {
+          setReply(
+            risk === "high"
+              ? "High risk. Fingerprint + second biometric required, Boss."
+              : "Medium risk. Place your fingerprint, Boss."
+          );
+          speak(
+            risk === "high"
+              ? "High risk command. Biometric verification required."
+              : "Medium risk. Biometric verification required."
+          );
+
+          // Medium: 1 biometric
+          await runBiometric("cortex-medium");
+
+          // High: second prompt (face/fingerprint again)
+          if (risk === "high") {
+            setReply("Second verification. Face or fingerprint again, Boss.");
+            speak("Second verification required.");
+            await runBiometric("cortex-high");
+          }
+
+          // Retry same command with approval proof
+          const retry = await fetch("/api/personal/command", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${idTokenRef.current}`,
+            },
+            body: JSON.stringify({
+              command: commandText,
+              approved: true,
+              approval_method:
+                risk === "high" ? "fingerprint_face" : "fingerprint",
+              risk,
+            }),
+          });
+
+          const retryPayload = await retry.json();
+          if (!retryPayload.success) {
+            setReply(`Error: ${retryPayload.error || "Approval failed."}`);
+            speak("Approval failed, Boss.");
+            return;
+          }
+
+          const spoken =
+            retryPayload.result?.message ||
+            retryPayload.result?.data?.message ||
+            "Approved and done, Boss.";
+          setReply(String(spoken).trim());
+          speak(String(spoken).trim());
+          return;
+        } catch (bioErr) {
+          setReply(`Biometric failed: ${bioErr.message}`);
+          speak("Biometric verification failed, Boss.");
+          return;
+        }
+      }
+      // ========== END BIOMETRIC ==========
 
                 setState({
                   loading: false,
@@ -441,6 +514,45 @@ export default function PersonalAssistantPage() {
       utterance
     );
   }
+
+
+  async function runBiometric(challengeText) {
+  if (typeof window === "undefined" || !window.PublicKeyCredential) {
+    throw new Error("Biometric not supported on this device.");
+  }
+
+  // Simple WebAuthn get (device fingerprint / face)
+  const challenge = Uint8Array.from(
+    btoa(challengeText || `cortex-${Date.now()}`)
+      .replace(/-/g, "+")
+      .replace(/_/g, "/")
+      .padEnd(Math.ceil(btoa(challengeText || `cortex-${Date.now()}`).length / 4) * 4, "=")
+      .split("")
+      .map((c) => c.charCodeAt(0) % 256)
+  );
+
+  // Prefer a random 32-byte challenge
+  const randomChallenge = new Uint8Array(32);
+  crypto.getRandomValues(randomChallenge);
+
+  const publicKey = {
+    challenge: randomChallenge,
+    timeout: 60000,
+    userVerification: "required",
+    rpId: window.location.hostname,
+  };
+
+  const cred = await navigator.credentials.get({ publicKey });
+  if (!cred) throw new Error("Biometric cancelled.");
+
+  return {
+    id: cred.id,
+    type: cred.type,
+    // server verify later – abhi proof of local biometric success
+    ok: true,
+    ts: Date.now(),
+  };
+}
 
   // --------------------------------------------------
   // CORE TAP

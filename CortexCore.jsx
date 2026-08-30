@@ -15,18 +15,6 @@ const smoothstep = (a, b, x) => {
   return t * t * (3 - 2 * t);
 };
 
-const ENERGY = {
-  masterEnergy: 1.0,
-  ringRotationSpeed: 1.0,
-  electricalIntensity: 1.50,
-  electricalFlowSpeed: 2.5,
-  orbPower: 1.0,
-  pulseFrequency: 1.0,
-  overloadProbability: 0.003,
-  arcIntervalMin: 1.2,
-  arcIntervalMax: 2.8,
-};
-
 function createPlasmaMaterial() {
   return new THREE.ShaderMaterial({
     uniforms: {
@@ -181,164 +169,94 @@ function createPlasmaMaterial() {
   });
 }
 
-
 function createRingMaterial(index) {
-  const metals = [
-    { color: 0x6a727c, roughness: 0.32, metalness: 0.95 }, // silver-steel
-    { color: 0x5a626c, roughness: 0.36, metalness: 0.93 }, // gunmetal
-    { color: 0x7a828c, roughness: 0.3, metalness: 0.96 },  // bright steel
-    { color: 0x4a525c, roughness: 0.38, metalness: 0.92 }, // dark steel (still visible)
-  ];
-
-  const m = metals[index % metals.length];
-
-  return new THREE.MeshStandardMaterial({
-    color: m.color,
-    metalness: m.metalness,
-    roughness: m.roughness,
-    envMapIntensity: 1.6,
-    emissive: new THREE.Color(0x2a3038),
-    emissiveIntensity: 0.25, // black pe outline dikhe
-    transparent: false,
-    opacity: 1,
-    side: THREE.DoubleSide,
-  });
-}
-
-function createElectricMaterial(index) {
   return new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
       uEnergy: { value: 0 },
-      uSeed: { value: index * 2.17 },
-      uIntensity: { value: 1 },
-      uFlowSpeed: { value: 1 },
-      uBoost: { value: 0 }, // overload
+      uSeed: { value: index * 1.731 },
     },
-    
+
     vertexShader: `
       varying vec2 vUv;
+
       void main() {
         vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+
+        gl_Position =
+          projectionMatrix *
+          modelViewMatrix *
+          vec4(position, 1.0);
       }
     `,
+
     fragmentShader: `
       uniform float uTime;
       uniform float uEnergy;
       uniform float uSeed;
-      uniform float uIntensity;
-      uniform float uFlowSpeed;
-      uniform float uBoost;
+
       varying vec2 vUv;
 
       float hash(float n) {
-        return fract(sin(n) * 43758.5453);
+        return fract(sin(n) * 43758.5453123);
       }
 
       void main() {
-        float t = uTime * uFlowSpeed;
+        float wave =
+          sin(
+            vUv.x * 75.0 +
+            uTime * (4.0 + uSeed)
+          );
 
-        // primary current segments along ring
-        float flow = fract(vUv.x * 9.0 - t * (2.4 + uSeed * 0.18) + uSeed);
-        float seg = smoothstep(0.62, 0.88, flow) * smoothstep(1.0, 0.90, flow);
+        float wave2 =
+          sin(
+            vUv.x * 150.0 -
+            uTime * 7.0 +
+            uSeed * 10.0
+          );
 
-        // second lane (offset)
-        float flow2 = fract(vUv.x * 12.0 + t * (1.8 + uSeed * 0.1) + 0.35);
-        float seg2 = smoothstep(0.86, 0.95, flow2) * smoothstep(1.0, 0.96, flow2) * 0.55;
+        float energy =
+          0.72 +
+          wave * 0.13 +
+          wave2 * 0.08;
 
-        // micro branches
-        float branch = step(0.93, hash(floor(vUv.x * 55.0 + uSeed) + floor(t * 4.0)));
-        branch *= smoothstep(0.25, 0.0, abs(vUv.y - 0.5));
+        float pulse =
+          0.72 +
+          0.28 *
+          sin(uTime * 3.0 + uSeed);
 
-        float spark = max(seg, seg2) + branch * 0.7;
-        float flicker = 0.7 + 0.3 * sin(t * 22.0 + uSeed * 11.0);
-        float strength = spark * flicker * (0.2 + uEnergy * 0.9) * uIntensity;
-        strength *= (1.0 + uBoost * 1.8);
+        vec3 deep =
+          vec3(0.15, 0.0, 0.0);
 
-        // crimson core + white-hot center
-        vec3 deep = vec3(0.35, 0.0, 0.0);
-        vec3 red = vec3(1.0, 0.12, 0.04);
-        vec3 hot = vec3(1.0, 0.75, 0.55);
-        vec3 col = mix(deep, red, clamp(strength * 1.4, 0.0, 1.0));
-        col = mix(col, hot, pow(clamp(strength, 0.0, 1.0), 2.2));
+        vec3 red =
+          vec3(0.48, 0.006, 0.003);
 
-        float alpha = strength * 0.95;
-        if (alpha < 0.025) discard;
-        gl_FragColor = vec4(col, alpha);
+        vec3 orange =
+          vec3(0.5, 0.045, 0.012);
+
+        vec3 color =
+          mix(deep, red, energy);
+
+        color =
+          mix(color, orange, smoothstep(0.78, 1.0, energy));
+
+        float alpha =
+          (0.55 + uEnergy * 0.45) *
+          pulse;
+
+        gl_FragColor =
+          vec4(
+            color * (0.5 + uEnergy * 1.1),
+            alpha
+          );
       }
     `,
+
     transparent: true,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
-    side: THREE.DoubleSide,
   });
 }
-
-
-function createArcLine() {
-  const maxPoints = 18;
-  const positions = new Float32Array(maxPoints * 3);
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    "position",
-    new THREE.BufferAttribute(positions, 3)
-  );
-  geometry.setDrawRange(0, 0);
-
-  const material = new THREE.LineBasicMaterial({
-    color: 0xff2a10,
-    transparent: true,
-    opacity: 0,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-
-  const line = new THREE.Line(geometry, material);
-  line.visible = false;
-  line.userData = {
-    active: false,
-    age: 0,
-    life: 0.55,
-    fromRing: 0,
-    toOrb: true,
-    start: new THREE.Vector3(),
-    end: new THREE.Vector3(),
-  };
-  return line;
-}
-
-function sampleRingPoint(ringGroup, radius, angle) {
-  // point on ring in local space, then to world
-  const local = new THREE.Vector3(
-    Math.cos(angle) * radius,
-    Math.sin(angle) * radius,
-    0
-  );
-  return ringGroup.localToWorld(local.clone());
-}
-
-function buildArcCurve(start, end, points, jitter, elapsed) {
-  const positions = [];
-  for (let i = 0; i < points; i++) {
-    const t = i / (points - 1);
-    const p = new THREE.Vector3().lerpVectors(start, end, t);
-    // bolt-like mid displacement
-    const mid = Math.sin(t * Math.PI);
-    const j =
-      (Math.sin(elapsed * 40 + i * 2.1) * 0.08 +
-        Math.sin(elapsed * 17 + i) * 0.05) *
-      jitter *
-      mid;
-    p.x += j;
-    p.y += j * 0.7;
-    p.z += Math.cos(elapsed * 25 + i) * 0.06 * jitter * mid;
-    positions.push(p.x, p.y, p.z);
-  }
-  return positions;
-}
-
-
 
 function createGlowMaterial(color = new THREE.Color(1, 0.015, 0.005)) {
   return new THREE.ShaderMaterial({
@@ -1038,7 +956,7 @@ export default function CortexCore({
     renderer.toneMapping =
       THREE.ACESFilmicToneMapping;
 
-    renderer.toneMappingExposure = 1.05;
+    renderer.toneMappingExposure = 0.65;
 
     container.appendChild(
       renderer.domElement
@@ -1085,35 +1003,36 @@ export default function CortexCore({
     // LIGHTING
     // --------------------------------------------------
 
-    // --------------------------------------------------
-    // LIGHTING (metal needs real lights)
-    // --------------------------------------------------
+    const redLight =
+      new THREE.PointLight(
+        0xff1a08,
+        0,
+        10,
+        2
+      );
 
-    const ambient = new THREE.AmbientLight(0x9aa3ad, 0.85);
-    scene.add(ambient);
+    redLight.position.set(
+      0,
+      0,
+      0
+    );
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 2.4);
-    keyLight.position.set(5, 4, 7);
-    scene.add(keyLight);
-
-    const fillLight = new THREE.DirectionalLight(0xb0b8c4, 1.0);
-    fillLight.position.set(-4, -1, 3);
-    scene.add(fillLight);
-
-    const rimLight = new THREE.DirectionalLight(0xffffff, 1.3);
-    rimLight.position.set(0, 3, -6);
-    scene.add(rimLight);
-
-    const ringLight = new THREE.PointLight(0xc8d0d8, 1.8, 14);
-    ringLight.position.set(0, 0, 3.5);
-    scene.add(ringLight);
-
-    const redLight = new THREE.PointLight(0xff1a08, 0, 10, 2);
-    redLight.position.set(0, 0, 0);
     cortex.add(redLight);
 
-    const orangeLight = new THREE.PointLight(0xdd2a10, 0, 7, 2);
-    orangeLight.position.set(0.8, 0.5, 0.5);
+    const orangeLight =
+      new THREE.PointLight(
+        0xdd2a10,
+        0,
+        7,
+        2
+      );
+
+    orangeLight.position.set(
+      0.8,
+      0.5,
+      0.5
+    );
+
     cortex.add(orangeLight);
 
     // --------------------------------------------------
@@ -1268,198 +1187,224 @@ export default function CortexCore({
     // --------------------------------------------------
     // FOUR TRUE 3D RINGS
     // --------------------------------------------------
-    // --------------------------------------------------
-    // FOUR TRUE 3D METALLIC RINGS
-    // --------------------------------------------------
 
     const ringData = [
       {
         radius: 1.55,
-        tube: 0.052,
+        tube: 0.045,
         speed: 2.3,
         phase: 0.0,
         x: 0.6,
         y: 0.2,
         z: 0.0,
+        scale: 1.0,
       },
       {
         radius: 1.3,
-        tube: 0.062,
+        tube: 0.058,
         speed: -1.9,
         phase: 1.7,
         x: 1.2,
         y: -0.7,
         z: 0.4,
+        scale: 1.0,
       },
       {
         radius: 1.08,
-        tube: 0.072,
+        tube: 0.068,
         speed: 1.5,
         phase: 3.1,
         x: -0.8,
         y: 1.25,
         z: -0.7,
+        scale: 1.0,
       },
       {
         radius: 0.88,
-        tube: 0.08,
+        tube: 0.076,
         speed: -1.1,
         phase: 4.8,
         x: 1.55,
         y: 0.65,
         z: 1.15,
+        scale: 1.0,
       },
     ];
 
     const ringGroups = [];
 
-    ringData.forEach((data, index) => {
-      const group = new THREE.Group();
-      group.visible = false;
-      group.rotation.set(data.x, data.y, data.z);
-      cortex.add(group);
+    ringData.forEach(
+      (data, index) => {
+        const group =
+          new THREE.Group();
 
-      // Outer dark metal rim (solid, not transparent)
-      const borderGeometry = new THREE.TorusGeometry(
-        data.radius,
-        data.tube * 1.35,
-        20,
-        256
-      );
+        group.visible = false;
 
-      const borderMaterial = new THREE.MeshStandardMaterial({
-        color: 0x4a525c,
-        metalness: 0.96,
-        roughness: 0.4,
-        emissive: new THREE.Color(0x2a3038),
-        emissiveIntensity: 0.28,
-        transparent: false,
-        opacity: 1,
-        side: THREE.DoubleSide,
-      });
+        group.rotation.set(
+          data.x,
+          data.y,
+          data.z
+        );
 
-      const border = new THREE.Mesh(borderGeometry, borderMaterial);
-      group.add(border);
+        cortex.add(group);
 
-      // Main metallic ring
-      const geometry = new THREE.TorusGeometry(
-        data.radius,
-        data.tube,
-        22,
-        256
-      );
+        // Black boundary ring — sits just outside the glowing
+        // torus, opaque and non-additive, so each ring reads as
+        // a distinct object with its own dark edge instead of
+        // bleeding into the orb / other rings' glow.
+        const borderGeometry =
+          new THREE.TorusGeometry(
+            data.radius,
+            data.tube * 1.45,
+            18,
+            256
+          );
 
-      const material = createRingMaterial(index);
-      const ring = new THREE.Mesh(geometry, material);
-      group.add(ring);
+        const borderMaterial =
+          new THREE.MeshBasicMaterial({
+            color: 0x000000,
+            transparent: true,
+            opacity: 0.92,
+            depthWrite: true,
+            side: THREE.DoubleSide,
+          });
 
-      // Thin inner metal lip (no red glow shell)
-      const shellGeometry = new THREE.TorusGeometry(
-        data.radius,
-        data.tube * 0.42,
-        16,
-        256
-      );
+        const border =
+          new THREE.Mesh(
+            borderGeometry,
+            borderMaterial
+          );
 
-      const shellMaterial = new THREE.MeshStandardMaterial({
-        color: 0xa8b0ba,
-        metalness: 0.97,
-        roughness: 0.26,
-        emissive: new THREE.Color(0x404850),
-        emissiveIntensity: 0.22,
-        transparent: false,
-        opacity: 1,
-        side: THREE.DoubleSide,
-      });
+        group.add(border);
 
-      const shell = new THREE.Mesh(shellGeometry, shellMaterial);
-      group.add(shell);
+        const geometry =
+          new THREE.TorusGeometry(
+            data.radius,
+            data.tube,
+            18,
+            256
+          );
 
-      // Electric current layer
-      const electricGeometry = new THREE.TorusGeometry(
-        data.radius,
-        data.tube * 0.38,
-        12,
-        256
-      );
-      const electricMaterial = createElectricMaterial(index);
-      const electric = new THREE.Mesh(electricGeometry, electricMaterial);
-      group.add(electric);
+        const material =
+          createRingMaterial(index);
 
-      // Subtle metal dust particles on ring (grey, not neon red)
-      const particleCount = 120;
-      const positions = new Float32Array(particleCount * 3);
+        const ring =
+          new THREE.Mesh(
+            geometry,
+            material
+          );
 
-      for (let p = 0; p < particleCount; p++) {
-        const a = (p / particleCount) * Math.PI * 2;
-        const radius =
-          data.radius + (Math.random() - 0.5) * data.tube * 2.2;
+        group.add(ring);
 
-        positions[p * 3] = Math.cos(a) * radius;
-        positions[p * 3 + 1] = Math.sin(a) * radius;
-        positions[p * 3 + 2] = (Math.random() - 0.5) * data.tube * 3;
+        // Larger transparent energy shell
+        const shellGeometry =
+          new THREE.TorusGeometry(
+            data.radius,
+            data.tube * 2.7,
+            14,
+            256
+          );
+
+        const shellMaterial =
+          new THREE.MeshBasicMaterial({
+            color: 0xff1008,
+            transparent: true,
+            opacity: 0.055,
+            blending:
+              THREE.AdditiveBlending,
+            depthWrite: false,
+          });
+
+        const shell =
+          new THREE.Mesh(
+            shellGeometry,
+            shellMaterial
+          );
+
+        group.add(shell);
+
+        // Ring particles
+        const particleCount = 180;
+
+        const positions =
+          new Float32Array(
+            particleCount * 3
+          );
+
+        for (
+          let p = 0;
+          p < particleCount;
+          p++
+        ) {
+          const a =
+            (p / particleCount) *
+            Math.PI *
+            2;
+
+          const radius =
+            data.radius +
+            (Math.random() - 0.5) *
+              data.tube *
+              3;
+
+          positions[p * 3] =
+            Math.cos(a) * radius;
+
+          positions[p * 3 + 1] =
+            Math.sin(a) * radius;
+
+          positions[p * 3 + 2] =
+            (Math.random() - 0.5) *
+            data.tube *
+            5;
+        }
+
+        const particleGeometry =
+          new THREE.BufferGeometry();
+
+        particleGeometry.setAttribute(
+          "position",
+          new THREE.BufferAttribute(
+            positions,
+            3
+          )
+        );
+
+        const particleMaterial =
+          new THREE.PointsMaterial({
+            color: 0xcc2a15,
+            size:
+              0.025 +
+              index * 0.004,
+            transparent: true,
+            opacity: 0.0,
+            blending:
+              THREE.AdditiveBlending,
+            depthWrite: false,
+          });
+
+        const ringParticles =
+          new THREE.Points(
+            particleGeometry,
+            particleMaterial
+          );
+
+        group.add(
+          ringParticles
+        );
+
+        ringGroups.push({
+          group,
+          ring,
+          border,
+          shell,
+          ringParticles,
+          material,
+          data,
+          index,
+        });
       }
-
-      const particleGeometry = new THREE.BufferGeometry();
-      particleGeometry.setAttribute(
-        "position",
-        new THREE.BufferAttribute(positions, 3)
-      );
-
-      const particleMaterial = new THREE.PointsMaterial({
-        color: 0x9aa3ad,
-        size: 0.018 + index * 0.003,
-        transparent: true,
-        opacity: 0.0,
-        depthWrite: false,
-      });
-
-      const ringParticles = new THREE.Points(
-        particleGeometry,
-        particleMaterial
-      );
-      group.add(ringParticles);
-
-     ringGroups.push({
-        group,
-        ring,
-        border,
-        shell,
-        electric,
-        electricMaterial,
-        ringParticles,
-        material,
-        data,
-        index,
-      });
-    });
-
-
-    // ========== ENERGY ARCS + IMPACT ==========
-    const arcPool = [];
-    for (let i = 0; i < 6; i++) {
-      const arc = createArcLine();
-      cortex.add(arc);
-      arcPool.push(arc);
-    }
-
-    let nextArcAt = 2.5;
-    let overloadUntil = -1;
-    let impactBoost = 0;
-    let chainStep = 0;
-    let chainUntil = -1;
-
-    // impact flash on orb surface
-    const impactGeo = new THREE.SphereGeometry(0.42, 32, 32);
-    const impactMat = new THREE.MeshBasicMaterial({
-      color: 0xff4422,
-      transparent: true,
-      opacity: 0,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    const impactFlash = new THREE.Mesh(impactGeo, impactMat);
-    orbGroup.add(impactFlash);
+    );
 
     // --------------------------------------------------
     // BACKGROUND PARTICLES / ATMOSPHERE
@@ -1512,7 +1457,8 @@ export default function CortexCore({
     // ANIMATION
     // --------------------------------------------------
 
-    const startTime = performance.now();
+    const clock =
+      new THREE.Clock();
 
     let animationFrame;
 
@@ -1527,7 +1473,7 @@ export default function CortexCore({
         );
 
       const elapsed =
-        (performance.now() - startTime) / 1000;
+        clock.getElapsedTime();
 
       const currentPhase =
         phaseRef.current;
@@ -1712,245 +1658,133 @@ export default function CortexCore({
       // RINGS
       // ----------------------------------------------
 
-      // ----------------------------------------------
-      // RINGS (metallic)
-      // ----------------------------------------------
+      ringGroups.forEach(
+        (item) => {
+          const {
+            group,
+            ring,
+            ringParticles,
+            material,
+            data,
+            index,
+          } = item;
 
-      ringGroups.forEach((item) => {
-        const {
-          group,
-          ring,
-          ringParticles,
-          material,
-          electricMaterial,
-          data,
-          index,
-        } = item;
+          const requiredPhase =
+            index + 3;
 
-        const requiredPhase = index + 3;
-        const ringActive = currentPhase >= requiredPhase;
+          const ringActive =
+            currentPhase >=
+            requiredPhase;
 
-        if (!ringActive) {
-          group.visible = false;
-          if (ringParticles?.material) {
-            ringParticles.material.opacity = 0;
+          if (!ringActive) {
+            group.visible = false;
+            material.uniforms.uEnergy.value =
+              0;
+
+            ringParticles.material.opacity =
+              0;
+
+            return;
           }
-          return;
-        }
 
-        group.visible = true;
+          group.visible = true;
 
-        const ringProgress = clamp01(currentPhase - (requiredPhase - 1));
-        const energy = smoothstep(0, 1, ringProgress);
-
-        // ========== ENERGY FLOW CONTROLS (easy tune) ==========
-
-        if (electricMaterial?.uniforms) {
-          electricMaterial.uniforms.uTime.value = elapsed;
-          electricMaterial.uniforms.uEnergy.value = energy;
-        }
-
-        // Solid metal — slight emissive lift only
-        if (material.emissiveIntensity !== undefined) {
-          material.emissiveIntensity = 0.3 + energy * 0.25;
-        }
-
-        if (ringParticles?.material) {
-          ringParticles.material.opacity = 0.12 + energy * 0.35;
-        }
-
-        const s = data.speed * ENERGY.ringRotationSpeed;
-
-        group.rotation.x =
-          data.x +
-          Math.sin(elapsed * 0.19 * s + data.phase) * 1.05;
-
-        group.rotation.y =
-          data.y +
-          Math.cos(elapsed * 0.23 * s + data.phase) * 1.35;
-
-        group.rotation.z =
-          data.z +
-          Math.sin(elapsed * 0.31 * s + data.phase) * 0.95;
-
-        const scaleWave =
-          1 +
-          Math.sin(elapsed * (0.7 + index * 0.13) + data.phase) * 0.035;
-
-        group.scale.set(scaleWave, scaleWave, scaleWave);
-
-        ring.rotation.z += s * 0.008;
-
-        if (ringParticles) {
-          ringParticles.rotation.z = elapsed * s * 0.65;
-        }
-      });
-
-
-      // ========== ENERGY FLOW SYSTEM ==========
-      const master = ENERGY.masterEnergy * (isUnlocked ? 1 : 0);
-      const overload =
-        overloadUntil > elapsed
-          ? (overloadUntil - elapsed) / 0.7
-          : 0;
-
-      // random overload
-      if (
-        isUnlocked &&
-        currentPhase >= 6 &&
-        overload <= 0 &&
-        Math.random() < ENERGY.overloadProbability
-      ) {
-        overloadUntil = elapsed + 0.7;
-      }
-
-      // ring electricity uniforms
-      ringGroups.forEach((item) => {
-        const requiredPhase = item.index + 3;
-        const ringActive = currentPhase >= requiredPhase;
-        if (!ringActive || !item.electricMaterial?.uniforms) return;
-
-        const base =
-          ENERGY.electricalIntensity *
-          master *
-          (0.7 + item.index * 0.08);
-
-        item.electricMaterial.uniforms.uTime.value = elapsed;
-        item.electricMaterial.uniforms.uEnergy.value =
-          clamp01(currentPhase / 6);
-        item.electricMaterial.uniforms.uIntensity.value =
-          base * (1 + overload * 1.5);
-        item.electricMaterial.uniforms.uFlowSpeed.value =
-          ENERGY.electricalFlowSpeed *
-          (0.85 + item.index * 0.12) *
-          (item.data.speed > 0 ? 1 : 1.15);
-        item.electricMaterial.uniforms.uBoost.value = overload;
-      });
-
-      // spawn arcs ring → orb (and chain)
-      if (isUnlocked && currentPhase >= 6 && elapsed > nextArcAt) {
-        const free = arcPool.find((a) => !a.userData.active);
-        if (free) {
-          const ringIndex =
-            chainUntil > elapsed
-              ? [0, 2, 1, 3][chainStep % 4]
-              : Math.floor(Math.random() * 4);
-
-          const item = ringGroups[ringIndex];
-          if (item && item.group.visible) {
-            const angle = Math.random() * Math.PI * 2;
-            const start = sampleRingPoint(
-              item.group,
-              item.data.radius,
-              angle
-            );
-            const end = new THREE.Vector3(0, 0, 0); // orb center
-
-            free.userData.active = true;
-            free.userData.age = 0;
-            free.userData.life = 0.45 + Math.random() * 0.25;
-            free.userData.fromRing = ringIndex;
-            free.userData.start.copy(start);
-            free.userData.end.copy(end);
-            free.visible = true;
-
-            // impact
-            impactBoost = 1;
-            plasmaMaterial.uniforms.uPower.value = Math.min(
-              1.3,
-              0.15 + activationProgress * 0.85 + 0.35 * ENERGY.orbPower
+          const ringProgress =
+            clamp01(
+              (
+                currentPhase -
+                (requiredPhase - 1)
+              )
             );
 
-            // occasional chain
-            if (Math.random() < 0.35) {
-              chainStep = 0;
-              chainUntil = elapsed + 1.8;
-            }
-            if (chainUntil > elapsed) chainStep++;
-          }
-        }
+          const energy =
+            smoothstep(
+              0,
+              1,
+              ringProgress
+            );
 
-        nextArcAt =
-          elapsed +
-          ENERGY.arcIntervalMin +
-          Math.random() *
-            (ENERGY.arcIntervalMax - ENERGY.arcIntervalMin);
+          material.uniforms.uTime.value =
+            elapsed;
 
-        if (overload > 0.2) {
-          nextArcAt = elapsed + 0.15; // rapid arcs during overload
-        }
-      }
+          material.uniforms.uEnergy.value =
+            energy;
 
-      // update arcs
-      // update arcs
-      arcPool.forEach((arc) => {
-        
-        if (!arc.userData.active) return;
+          ringParticles.material.opacity =
+            0.25 +
+            energy * 0.65;
 
-        arc.userData.age += 1 / 60;
-        const t = arc.userData.age / arc.userData.life;
+          // ------------------------------------------
+          // TRUE 3D ORIENTATION
+          //
+          // Every ring uses a DIFFERENT combination
+          // of axes and changing sine/cosine motion.
+          // ------------------------------------------
 
-        if (t >= 1) {
-          arc.userData.active = false;
-          arc.visible = false;
-          arc.material.opacity = 0;
-          arc.geometry.setDrawRange(0, 0);
-          return;
-        }
+          const s =
+            data.speed;
 
-        const item = ringGroups[arc.userData.fromRing];
-        if (item) {
-          const angle = elapsed * 2.5 + arc.userData.fromRing;
-          arc.userData.start.copy(
-            sampleRingPoint(item.group, item.data.radius, angle)
+          group.rotation.x =
+            data.x +
+            Math.sin(
+              elapsed *
+                0.19 *
+                s +
+                data.phase
+            ) *
+              1.05;
+
+          group.rotation.y =
+            data.y +
+            Math.cos(
+              elapsed *
+                0.23 *
+                s +
+                data.phase
+            ) *
+              1.35;
+
+          group.rotation.z =
+            data.z +
+            Math.sin(
+              elapsed *
+                0.31 *
+                s +
+                data.phase
+            ) *
+              0.95;
+
+          // ------------------------------------------
+          // 3D FIELD SWEEP
+          // ------------------------------------------
+
+          const scaleWave =
+            1 +
+            Math.sin(
+              elapsed *
+                (0.7 +
+                  index * 0.13) +
+                data.phase
+            ) *
+              0.035;
+
+          group.scale.set(
+            scaleWave,
+            scaleWave,
+            scaleWave
           );
+
+          // Ring itself has independent spin
+          ring.rotation.z +=
+            s * 0.008;
+
+          // Particle stream moves around ring
+          ringParticles.rotation.z =
+            elapsed *
+            s *
+            0.65;
         }
-
-        const pts = buildArcCurve(
-          arc.userData.start,
-          arc.userData.end,
-          18,
-          1 + overload,
-          elapsed
-        );
-
-        const attr = arc.geometry.attributes.position;
-        for (let i = 0; i < pts.length; i++) {
-          attr.array[i] = pts[i];
-        }
-        attr.needsUpdate = true;
-        arc.geometry.setDrawRange(0, 18);
-        arc.geometry.computeBoundingSphere();
-
-        const fade = Math.sin(t * Math.PI);
-        arc.material.opacity = fade * 0.9 * ENERGY.masterEnergy;
-        arc.material.color.setHex(overload > 0 ? 0xff5533 : 0xff2a10);
-      });
-
-      // orb impact flash + ripple brightness
-      impactBoost *= 0.92;
-      impactFlash.material.opacity = impactBoost * 0.55;
-      impactFlash.scale.setScalar(1 + (1 - impactBoost) * 0.25);
-
-      if (impactBoost > 0.05) {
-        plasmaMaterial.uniforms.uPower.value =
-          0.15 +
-          activationProgress * 0.85 +
-          impactBoost * 0.4 * ENERGY.orbPower;
-      }
-
-      // overload global pulse
-      if (overload > 0) {
-        redLight.intensity = Math.max(
-          redLight.intensity,
-          2.2 * overload * ENERGY.masterEnergy
-        );
-        flash.material.opacity = Math.max(
-          flash.material.opacity,
-          overload * 0.25
-        );
-        flash.scale.setScalar(1 + overload * 0.35);
-      }
+      );
 
       // ----------------------------------------------
       // FINAL POWER PHASE
@@ -2188,21 +2022,8 @@ export default function CortexCore({
 
           item.ringParticles.geometry.dispose();
           item.ringParticles.material.dispose();
-
-          if (item.electric) {
-            item.electric.geometry.dispose();
-            item.electricMaterial.dispose();
-          }
         }
       );
-
-
-      arcPool.forEach((arc) => {
-        arc.geometry.dispose();
-        arc.material.dispose();
-      });
-      impactGeo.dispose();
-      impactMat.dispose();
 
       droplets.forEach(
         (drop) => {

@@ -1,7 +1,7 @@
 ﻿import { NextResponse } from "next/server";
 import { requirePersonalOwner } from "../../../lib/personal-owner";
 import { cortexDispatch } from "../../../lib/cortex/client";
-import { askCortexLLM, summarizeCortexResult } from "../../../lib/cortex/llm";
+import { askCortexLLM } from "../../../lib/cortex/llm";
 
 export async function POST(request) {
   const { uid, response } = await requirePersonalOwner(request);
@@ -19,6 +19,10 @@ export async function POST(request) {
 
   const command =
     typeof body?.command === "string" ? body.command.trim() : "";
+    const approved = body?.approved === true;
+  const approvalMethod =
+    typeof body?.approval_method === "string" ? body.approval_method : null;
+  const riskHint = typeof body?.risk === "string" ? body.risk : null;
 
   if (!command) {
     return NextResponse.json(
@@ -30,6 +34,24 @@ export async function POST(request) {
   try {
     const llm = await askCortexLLM(command);
 
+    // ============================================
+    // 1) SPECIALIST SWITCH (all 8) — NO tool call
+    // ============================================
+    if (llm.type === "switch") {
+      return NextResponse.json({
+        success: true,
+        result: {
+          success: true,
+          agent: llm.agent_id,
+          message: `${llm.agent_id} is now online, Boss. You may give commands.`,
+          switched_to: llm.agent_id,
+        },
+      });
+    }
+
+    // ============================================
+    // 2) NORMAL CHAT
+    // ============================================
     if (llm.type === "chat") {
       return NextResponse.json({
         success: true,
@@ -41,34 +63,67 @@ export async function POST(request) {
       });
     }
 
+    // ============================================
+    // 3) REAL TOOL / WORK → CORTEX bridge
+    // ============================================
     const result = await cortexDispatch({
       task: llm.task || command,
       context: {
         source: "personal_voice",
         uid,
+        approved,
+        approval_method: approvalMethod,
+        risk: riskHint,
       },
     });
 
-    // The raw CORTEX result (result.data) often holds the real
-    // payload (tournament list, wallet balance, room info, etc.)
-    // nested under result.data.result / result.data - not in
-    // result.message, which is usually a generic "executed
-    // successfully" line. Summarize the real payload through the
-    // LLM so Boss actually hears the data, not the generic line.
-    let message;
+    const msg = String(result?.message || result?.detail || "");
+    const needsApprove =
+      result?.requires_approval === true ||
+      msg.toLowerCase().includes("approve") ||
+      msg.toLowerCase().includes("approval");
 
-    try {
-      const summary = await summarizeCortexResult(
-        command,
-        result?.data ?? result
-      );
+    if (needsApprove && !approved) {
+      const risk =
+        result?.risk ||
+        (msg.toLowerCase().includes("high") ? "high" : "medium");
 
-      message = summary || result?.message || "Done, Boss.";
-    } catch {
-      message = result?.message || "Done, Boss.";
+      return NextResponse.json({
+        success: false,
+        requires_approval: true,
+        risk,
+        error: "approval_required",
+        result: {
+          requires_approval: true,
+          risk,
+          request_id: result?.request_id || result?.data?.request_id || null,
+          agent_id: result?.agent || result?.agent_id || null,
+          message:
+            risk === "high"
+              ? "High risk action. Tap approve to confirm, Boss."
+              : "This needs your approval, Boss. Tap approve to confirm.",
+        },
+      });
     }
-    if (typeof message === "string" && message.length > 220) {
-      message = message.slice(0, 210) + "...";
+
+    let message =
+      result?.message ||
+      result?.data?.message ||
+      "Done, Boss.";
+
+    if (
+      typeof message === "string" &&
+      (message.includes("Intent identified") ||
+        message.includes("Unable to identify") ||
+        message.toLowerCase().includes("not register"))
+    ) {
+      message = result?.success
+        ? "Done, Boss."
+        : "That command is not available yet, Boss.";
+    }
+
+    if (typeof message === "string" && message.length > 160) {
+      message = message.slice(0, 150) + "...";
     }
 
     return NextResponse.json({
