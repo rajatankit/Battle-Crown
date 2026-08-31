@@ -1,23 +1,12 @@
 ﻿"use client";
 
-import {
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-
-import {
-  auth,
-} from "../lib/firebase";
-
-import {
-  onAuthStateChanged,
-} from "firebase/auth";
+import { useEffect, useRef, useState } from "react";
+import { auth } from "../lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
 
 import CortexCore from "./CortexCore";
 import VerificationModal from "../../components/cortex/VerificationModal";
-
-const ACTIVATION_DURATION = 60000;
+import SecuritySetup from "../../components/cortex/SecuritySetup";
 
 export default function PersonalAssistantPage() {
   const [state, setState] = useState({
@@ -34,9 +23,11 @@ export default function PersonalAssistantPage() {
   const [unlocked, setUnlocked] = useState(false);
   const [phase, setPhase] = useState(0);
 
-  // Verification modal state
+  // null = checking, true = ready, false = need setup
+  const [securityReady, setSecurityReady] = useState(null);
+
+  // Verification modal: { requiredVerification, requestId, agentId } | null
   const [verification, setVerification] = useState(null);
-  // { requiredVerification, requestId, agentId } | null
 
   const recognitionRef = useRef(null);
   const idTokenRef = useRef(null);
@@ -113,7 +104,7 @@ export default function PersonalAssistantPage() {
   }, [unlocked]);
 
   // --------------------------------------------------
-  // FIREBASE OWNER VERIFICATION
+  // FIREBASE OWNER VERIFICATION + SECURITY STATUS
   // --------------------------------------------------
 
   useEffect(() => {
@@ -125,6 +116,7 @@ export default function PersonalAssistantPage() {
           ownerVerified: false,
           firebaseUid: "",
         });
+        setSecurityReady(null);
         return;
       }
 
@@ -135,21 +127,34 @@ export default function PersonalAssistantPage() {
 
           try {
             const response = await fetch("/api/personal/status", {
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
+              headers: { Authorization: `Bearer ${token}` },
             });
-
             const payload = await response.json();
+
+            const ownerOk = Boolean(payload.success);
 
             setState({
               loading: false,
-              message: payload.success
+              message: ownerOk
                 ? "CORTEX Online"
                 : payload.error || "Secure access check failed.",
-              ownerVerified: Boolean(payload.success),
+              ownerVerified: ownerOk,
               firebaseUid: user.uid,
             });
+
+            if (ownerOk) {
+              try {
+                const secRes = await fetch("/api/cortex/security/status", {
+                  headers: { Authorization: `Bearer ${token}` },
+                });
+                const sec = await secRes.json();
+                setSecurityReady(Boolean(sec?.ready));
+              } catch {
+                setSecurityReady(false);
+              }
+            } else {
+              setSecurityReady(null);
+            }
           } catch {
             setState({
               loading: false,
@@ -157,6 +162,7 @@ export default function PersonalAssistantPage() {
               ownerVerified: false,
               firebaseUid: user.uid,
             });
+            setSecurityReady(null);
           }
         })
         .catch(() => {
@@ -166,6 +172,7 @@ export default function PersonalAssistantPage() {
             ownerVerified: false,
             firebaseUid: user.uid,
           });
+          setSecurityReady(null);
         });
     });
 
@@ -247,7 +254,6 @@ export default function PersonalAssistantPage() {
     if (!recognitionRef.current || listening || busy || verification) {
       return;
     }
-
     if (unlocked && phase < 6) return;
 
     setTranscript("");
@@ -262,7 +268,7 @@ export default function PersonalAssistantPage() {
   }
 
   // --------------------------------------------------
-  // PARSE VERIFICATION_REQUIRED MESSAGE
+  // PARSE VERIFICATION_REQUIRED
   // Format: VERIFICATION_REQUIRED:fingerprint+face:<requestId>
   // --------------------------------------------------
 
@@ -272,14 +278,12 @@ export default function PersonalAssistantPage() {
     if (!trimmed.startsWith("VERIFICATION_REQUIRED:")) return null;
 
     const parts = trimmed.split(":");
-    // VERIFICATION_REQUIRED : type : uuid
     if (parts.length < 3) return null;
 
-    const requiredVerification = parts[1]; // fingerprint | fingerprint+face
-    const requestId = parts.slice(2).join(":"); // rest is uuid
+    const requiredVerification = parts[1];
+    const requestId = parts.slice(2).join(":");
 
     if (!requiredVerification || !requestId) return null;
-
     return { requiredVerification, requestId };
   }
 
@@ -292,7 +296,6 @@ export default function PersonalAssistantPage() {
 
     const text = commandText.trim().toLowerCase();
 
-    // LOCKED
     if (!unlockedRef.current) {
       if (
         text.includes("cortex unlock") ||
@@ -310,13 +313,11 @@ export default function PersonalAssistantPage() {
       return;
     }
 
-    // ACTIVATING
     if (phaseRef.current < 6) {
       setReply("Activation in progress. Stand by, Boss.");
       return;
     }
 
-    // LOCK
     if (text.includes("cortex lock") || text.includes("cortex, lock")) {
       unlockedRef.current = false;
       setUnlocked(false);
@@ -326,7 +327,6 @@ export default function PersonalAssistantPage() {
       return;
     }
 
-    // NORMAL COMMAND
     setBusy(true);
 
     try {
@@ -342,8 +342,7 @@ export default function PersonalAssistantPage() {
       const payload = await response.json();
 
       if (!payload.success) {
-        const errorMessage = `Error: ${payload.error || "Command failed."}`;
-        setReply(errorMessage);
+        setReply(`Error: ${payload.error || "Command failed."}`);
         speak("Command failed, Boss.");
         return;
       }
@@ -355,8 +354,6 @@ export default function PersonalAssistantPage() {
         "Done, Boss.";
 
       const clean = String(spoken).trim();
-
-      // ---- VERIFICATION GATE ----
       const verificationInfo = parseVerificationRequired(clean);
 
       if (verificationInfo) {
@@ -388,8 +385,7 @@ export default function PersonalAssistantPage() {
       setReply(clean);
       speak(clean);
     } catch (error) {
-      const message = error?.message || "Something went wrong.";
-      setReply(`Error: ${message}`);
+      setReply(`Error: ${error?.message || "Something went wrong."}`);
       speak("Something went wrong, Boss.");
     } finally {
       setBusy(false);
@@ -397,7 +393,7 @@ export default function PersonalAssistantPage() {
   }
 
   // --------------------------------------------------
-  // VERIFICATION SUCCESS / CANCEL
+  // VERIFICATION HANDLERS
   // --------------------------------------------------
 
   function handleVerificationSuccess(data) {
@@ -420,8 +416,22 @@ export default function PersonalAssistantPage() {
     speak("Verification cancelled.");
   }
 
+  async function refreshSecurityStatus() {
+    try {
+      const secRes = await fetch("/api/cortex/security/status", {
+        headers: {
+          Authorization: `Bearer ${idTokenRef.current}`,
+        },
+      });
+      const sec = await secRes.json();
+      setSecurityReady(Boolean(sec?.ready));
+    } catch {
+      setSecurityReady(false);
+    }
+  }
+
   // --------------------------------------------------
-  // LOADING / ACCESS SCREEN
+  // SCREENS
   // --------------------------------------------------
 
   if (state.loading || !state.ownerVerified) {
@@ -434,6 +444,25 @@ export default function PersonalAssistantPage() {
           <p className="text-gray-300 text-sm">{state.message}</p>
         </div>
       </main>
+    );
+  }
+
+  if (securityReady === null) {
+    return (
+      <main className="min-h-screen bg-black flex items-center justify-center p-6">
+        <p className="text-gray-400 text-sm tracking-[0.35em]">
+          Checking security setup…
+        </p>
+      </main>
+    );
+  }
+
+  if (securityReady === false) {
+    return (
+      <SecuritySetup
+        authToken={idTokenRef.current}
+        onComplete={refreshSecurityStatus}
+      />
     );
   }
 
@@ -453,27 +482,15 @@ export default function PersonalAssistantPage() {
 
   return (
     <main className="relative min-h-screen bg-black overflow-hidden flex flex-col items-center justify-center select-none">
-      {/* Background */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
           background:
             phase >= 1
-              ? `
-                radial-gradient(
-                  circle at center,
-                  rgba(150,0,0,${0.05 + phase * 0.018}) 0%,
-                  rgba(70,0,0,0.035) 30%,
-                  transparent 67%
-                )
-              `
-              : `
-                radial-gradient(
-                  circle at center,
-                  rgba(30,0,0,0.035) 0%,
-                  transparent 60%
-                )
-              `,
+              ? `radial-gradient(circle at center, rgba(150,0,0,${
+                  0.05 + phase * 0.018
+                }) 0%, rgba(70,0,0,0.035) 30%, transparent 67%)`
+              : `radial-gradient(circle at center, rgba(30,0,0,0.035) 0%, transparent 60%)`,
           transition: "background 2s ease",
         }}
       />
@@ -486,7 +503,6 @@ export default function PersonalAssistantPage() {
         }}
       />
 
-      {/* Header */}
       <div className="absolute top-8 left-0 right-0 text-center z-30 pointer-events-none">
         <p
           className="text-red-500 text-xs tracking-[0.55em] font-bold"
@@ -503,7 +519,6 @@ export default function PersonalAssistantPage() {
         </p>
       </div>
 
-      {/* Core */}
       <button
         type="button"
         onClick={handleCoreTap}
@@ -522,14 +537,9 @@ export default function PersonalAssistantPage() {
           perspective: "1200px",
         }}
       >
-        <CortexCore
-          phase={phase}
-          unlocked={unlocked}
-          listening={listening}
-        />
+        <CortexCore phase={phase} unlocked={unlocked} listening={listening} />
       </button>
 
-      {/* Transcript / Reply */}
       <div className="absolute bottom-28 left-0 right-0 z-30 flex flex-col items-center px-6 space-y-2 pointer-events-none">
         {transcript && (
           <p className="text-xs text-gray-400 max-w-xs text-center">
@@ -537,16 +547,13 @@ export default function PersonalAssistantPage() {
             {transcript}
           </p>
         )}
-
         {reply && (
           <p className="text-xs text-gray-200 max-w-sm text-center">
-            <span className="text-red-500 font-semibold">CORTEX:</span>{" "}
-            {reply}
+            <span className="text-red-500 font-semibold">CORTEX:</span> {reply}
           </p>
         )}
       </div>
 
-      {/* Bottom status */}
       <div className="absolute bottom-14 left-0 right-0 text-center z-30 pointer-events-none">
         <p className="text-gray-500 text-xs tracking-[0.2em]">
           {!unlocked
@@ -565,7 +572,6 @@ export default function PersonalAssistantPage() {
         </p>
       </div>
 
-      {/* Verification Modal */}
       {verification && (
         <VerificationModal
           requiredVerification={verification.requiredVerification}
