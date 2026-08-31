@@ -94,7 +94,7 @@ export default function SecuritySetup({ authToken, onComplete }) {
           CORTEX SECURITY SETUP
         </h2>
         <p className="text-xs text-gray-500">
-          Ek baar setup karo — fingerprint/face + pattern. Uske baad high-risk commands verify hongi.
+          Ek baar setup karo â€” fingerprint/face + pattern. Uske baad high-risk commands verify hongi.
         </p>
 
         <button
@@ -125,7 +125,7 @@ export default function SecuritySetup({ authToken, onComplete }) {
             className="w-full rounded-full py-3 font-semibold"
             style={{ backgroundColor: "#ff2a10", color: "#000" }}
           >
-            Setup Complete — Continue
+            Setup Complete â€” Continue
           </button>
         )}
       </div>
