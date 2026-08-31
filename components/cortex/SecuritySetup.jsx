@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import { startRegistration } from "@simplewebauthn/browser";
@@ -27,7 +27,7 @@ export default function SecuritySetup({ authToken, onComplete }) {
         throw new Error(options?.error || "Failed to get options.");
       }
 
-      const attestation = await startRegistration(options);
+      const attestation = await startRegistration({ optionsJSON: options });
 
       const verifyRes = await fetch("/api/cortex/security/register-verify", {
         method: "POST",
@@ -94,7 +94,7 @@ export default function SecuritySetup({ authToken, onComplete }) {
           CORTEX SECURITY SETUP
         </h2>
         <p className="text-xs text-gray-500">
-          Ek baar setup karo — fingerprint/face + pattern. Uske baad high-risk commands verify hongi.
+          Ek baar setup karo � fingerprint/face + pattern. Uske baad high-risk commands verify hongi.
         </p>
 
         <button
@@ -102,7 +102,7 @@ export default function SecuritySetup({ authToken, onComplete }) {
           className="w-full rounded-full py-3"
           style={{ border: "1px solid #ff2a10", color: "#ff6a55" }}
         >
-          {biometricDone ? "Biometric ✓ Registered" : "1. Register Fingerprint / Face"}
+          {biometricDone ? "Biometric ? Registered" : "1. Register Fingerprint / Face"}
         </button>
 
         {!settingPattern ? (
@@ -111,7 +111,7 @@ export default function SecuritySetup({ authToken, onComplete }) {
             className="w-full rounded-full py-3"
             style={{ border: "1px solid #ff2a10", color: "#ff6a55" }}
           >
-            {patternDone ? "Pattern ✓ Saved" : "2. Set Pattern Lock"}
+            {patternDone ? "Pattern ? Saved" : "2. Set Pattern Lock"}
           </button>
         ) : (
           <PatternLock onComplete={savePattern} label="Set your pattern" />
@@ -125,7 +125,7 @@ export default function SecuritySetup({ authToken, onComplete }) {
             className="w-full rounded-full py-3 font-semibold"
             style={{ backgroundColor: "#ff2a10", color: "#000" }}
           >
-            Setup Complete — Continue
+            Setup Complete � Continue
           </button>
         )}
       </div>

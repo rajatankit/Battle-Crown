@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useCallback } from "react";
 import { startAuthentication } from "@simplewebauthn/browser";
@@ -81,7 +81,7 @@ export default function VerificationModal({
         throw new Error(options?.error || "Biometric not set up.");
       }
 
-      const assertion = await startAuthentication(options);
+      const assertion = await startAuthentication({ optionsJSON: options });
 
       const verifyRes = await fetch("/api/cortex/security/auth-verify", {
         method: "POST",
