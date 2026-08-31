@@ -192,3 +192,28 @@ model PersonalPasskeyChallenge {
   expiresAt DateTime
   createdAt DateTime @default(now())
 }
+
+// ============================================================
+// ADD THIS MODEL TO YOUR EXISTING prisma/schema.prisma
+// (do not overwrite your existing schema — just paste this
+// model in alongside your other models, then run:
+//   npx prisma migrate dev --name add_cortex_security
+// ============================================================
+
+model CortexSecurity {
+  id                String   @id @default(cuid())
+
+  // WebAuthn (fingerprint / face — the device decides which)
+  webauthnCredId    String?  @unique
+  webauthnPublicKey String?
+  webauthnCounter   Int      @default(0)
+  webauthnChallenge String?
+
+  // Custom pattern lock (used for HIGH risk actions)
+  patternHash       String?
+  patternSalt       String?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
