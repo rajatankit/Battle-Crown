@@ -1,0 +1,198 @@
+﻿"use client";
+
+import { useState, useCallback } from "react";
+import { startAuthentication } from "@simplewebauthn/browser";
+import PatternLock from "./PatternLock";
+
+function stepsFor(requiredVerification) {
+  if (requiredVerification === "fingerprint+face") {
+    return ["biometric", "biometric", "pattern"];
+  }
+  if (requiredVerification === "fingerprint") {
+    return ["biometric"];
+  }
+  return ["biometric"];
+}
+
+export default function VerificationModal({
+  requiredVerification,
+  requestId,
+  agentId,
+  authToken,
+  onSuccess,
+  onCancel,
+}) {
+  const [steps] = useState(() => stepsFor(requiredVerification));
+  const [stepIndex, setStepIndex] = useState(0);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [finishing, setFinishing] = useState(false);
+
+  const authHeaders = useCallback(() => {
+    const h = { "Content-Type": "application/json" };
+    if (authToken) h.Authorization = `Bearer ${authToken}`;
+    return h;
+  }, [authToken]);
+
+  const finish = useCallback(async () => {
+    setFinishing(true);
+    try {
+      const res = await fetch("/api/personal/command/approve", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          request_id: requestId,
+          agent_id: agentId,
+          verified: true,
+        }),
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data?.error || "Approval failed.");
+      }
+
+      onSuccess(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Approval failed.");
+      setFinishing(false);
+    }
+  }, [requestId, agentId, onSuccess, authHeaders]);
+
+  const advance = useCallback(() => {
+    setStepIndex((prev) => {
+      const next = prev + 1;
+      if (next >= steps.length) {
+        finish();
+      }
+      return next;
+    });
+  }, [steps.length, finish]);
+
+  const runBiometricStep = useCallback(async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const optionsRes = await fetch("/api/cortex/security/auth-options", {
+        headers: authHeaders(),
+      });
+      const options = await optionsRes.json();
+      if (!optionsRes.ok) {
+        throw new Error(options?.error || "Biometric not set up.");
+      }
+
+      const assertion = await startAuthentication(options);
+
+      const verifyRes = await fetch("/api/cortex/security/auth-verify", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(assertion),
+      });
+      const verifyData = await verifyRes.json();
+
+      if (!verifyRes.ok || !verifyData.success) {
+        throw new Error(verifyData?.error || "Biometric verification failed.");
+      }
+
+      advance();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Biometric step failed.");
+    } finally {
+      setBusy(false);
+    }
+  }, [advance, authHeaders]);
+
+  const runPatternStep = useCallback(
+    async (patternString) => {
+      setBusy(true);
+      setError("");
+      try {
+        const res = await fetch("/api/cortex/security/pattern-verify", {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({ pattern: patternString }),
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          throw new Error(data?.error || "Pattern incorrect.");
+        }
+
+        advance();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Pattern step failed.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [advance, authHeaders]
+  );
+
+  const currentStep = steps[stepIndex];
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ backgroundColor: "rgba(0,0,0,0.85)" }}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl p-6"
+        style={{
+          border: "1px solid #4a0400",
+          backgroundColor: "#000",
+          boxShadow: "0 0 40px rgba(255,0,0,0.25)",
+        }}
+      >
+        <h2
+          className="mb-1 text-center text-lg font-bold tracking-widest"
+          style={{ color: "#ff3b30" }}
+        >
+          IDENTITY VERIFICATION
+        </h2>
+        <p className="mb-6 text-center text-xs text-gray-500">
+          {finishing
+            ? "Finalizing..."
+            : `Step ${Math.min(stepIndex + 1, steps.length)} of ${steps.length}`}
+        </p>
+
+        {!finishing && currentStep === "biometric" && (
+          <div className="flex flex-col items-center gap-4">
+            <p className="text-sm text-gray-300 text-center">
+              Boss, apna fingerprint ya face verify karo.
+            </p>
+            <button
+              disabled={busy}
+              onClick={runBiometricStep}
+              className="rounded-full px-6 py-3 disabled:opacity-50"
+              style={{
+                border: "1px solid #ff2a10",
+                color: "#ff6a55",
+                background: "transparent",
+              }}
+            >
+              {busy ? "Verifying..." : "Tap to Verify"}
+            </button>
+          </div>
+        )}
+
+        {!finishing && currentStep === "pattern" && (
+          <PatternLock onComplete={runPatternStep} />
+        )}
+
+        {error && (
+          <p className="mt-4 text-center text-xs" style={{ color: "#ff3b30" }}>
+            {error}
+          </p>
+        )}
+
+        <button
+          onClick={onCancel}
+          disabled={finishing}
+          className="mt-6 w-full text-center text-xs text-gray-500 hover:text-gray-300 disabled:opacity-40"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import {
   useEffect,
@@ -15,6 +15,7 @@ import {
 } from "firebase/auth";
 
 import CortexCore from "./CortexCore";
+import VerificationModal from "../../components/cortex/VerificationModal";
 
 const ACTIVATION_DURATION = 60000;
 
@@ -26,183 +27,89 @@ export default function PersonalAssistantPage() {
     firebaseUid: "",
   });
 
-  const [listening, setListening] =
-    useState(false);
+  const [listening, setListening] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [transcript, setTranscript] = useState("");
+  const [reply, setReply] = useState("");
+  const [unlocked, setUnlocked] = useState(false);
+  const [phase, setPhase] = useState(0);
 
-  const [busy, setBusy] =
-    useState(false);
+  // Verification modal state
+  const [verification, setVerification] = useState(null);
+  // { requiredVerification, requestId, agentId } | null
 
-  const [transcript, setTranscript] =
-    useState("");
-
-  const [reply, setReply] =
-    useState("");
-
-  const [unlocked, setUnlocked] =
-    useState(false);
-
-  const [phase, setPhase] =
-    useState(0);
-
-  const recognitionRef =
-    useRef(null);
-
-  const idTokenRef =
-    useRef(null);
-
-  const unlockedRef =
-    useRef(false);
-
-  const phaseRef =
-    useRef(0);
-
-  // --------------------------------------------------
-  // KEEP REFS SYNCHRONIZED
-  //
-  // sendCommand() is captured ONCE inside the speech
-  // recognition useEffect ([] deps, mount-only), so any
-  // plain state var it reads (like `phase`) is frozen at
-  // whatever value it had at mount. Refs stay live across
-  // renders without re-creating the recognition object,
-  // so we mirror both `unlocked` and `phase` into refs and
-  // read the refs inside sendCommand instead of the state.
-  // --------------------------------------------------
+  const recognitionRef = useRef(null);
+  const idTokenRef = useRef(null);
+  const unlockedRef = useRef(false);
+  const phaseRef = useRef(0);
 
   useEffect(() => {
-    unlockedRef.current =
-      unlocked;
+    unlockedRef.current = unlocked;
   }, [unlocked]);
 
   useEffect(() => {
-    phaseRef.current =
-      phase;
+    phaseRef.current = phase;
   }, [phase]);
 
   // --------------------------------------------------
   // 60 SECOND CINEMATIC ACTIVATION
-  //
-  // Wall-clock based instead of a chain of setTimeouts.
-  // The unlock timestamp is persisted in sessionStorage,
-  // so if this component remounts mid-activation (Fast
-  // Refresh in dev, a parent re-render, a tab that was
-  // backgrounded and throttled timers, etc.) the
-  // countdown RESUMES from where it was instead of
-  // silently restarting at 0 — which was the original
-  // bug: phase kept getting reset to 0 before it ever
-  // reached 6, so every command hit the
-  // "Activation in progress" branch forever.
-  //
-  // 0–10   Core awakening      (phase 1)
-  // 10–20  Fusion ignition     (phase 2)
-  // 20–30  Ring 1              (phase 3)
-  // 30–40  Ring 2              (phase 4)
-  // 40–50  Ring 3              (phase 5)
-  // 50–60  Ring 4 / final pulse (phase 6 = ACTIVATED)
   // --------------------------------------------------
 
   useEffect(() => {
     if (!unlocked) {
       setPhase(0);
-
       try {
-        sessionStorage.removeItem(
-          "cortex_unlock_ts"
-        );
+        sessionStorage.removeItem("cortex_unlock_ts");
       } catch {
-        // sessionStorage may be unavailable (SSR/private mode) — ignore.
+        // ignore
       }
-
       return;
     }
 
     let startTs = null;
-
     try {
-      startTs = Number(
-        sessionStorage.getItem(
-          "cortex_unlock_ts"
-        )
-      );
+      startTs = Number(sessionStorage.getItem("cortex_unlock_ts"));
     } catch {
       startTs = null;
     }
 
     if (!startTs) {
       startTs = Date.now();
-
       try {
-        sessionStorage.setItem(
-          "cortex_unlock_ts",
-          String(startTs)
-        );
+        sessionStorage.setItem("cortex_unlock_ts", String(startTs));
       } catch {
-        // If we can't persist it, activation still works for this
-        // mount — it just won't survive a remount.
+        // ignore
       }
     }
 
     const tick = () => {
-      const elapsed =
-        Date.now() - startTs;
-
-      const newPhase = Math.min(
-        6,
-        Math.floor(
-          elapsed / 10000
-        )
-      );
+      const elapsed = Date.now() - startTs;
+      const newPhase = Math.min(6, Math.floor(elapsed / 10000));
 
       setPhase((prev) => {
         if (newPhase !== prev) {
-          console.log(
-            "[CORTEX] phase ->",
-            newPhase,
-            "elapsed:",
-            elapsed
-          );
+          console.log("[CORTEX] phase ->", newPhase, "elapsed:", elapsed);
         }
-
         return newPhase;
       });
 
       if (newPhase >= 6) {
-        setReply(
-          "CORTEX ACTIVATED."
-        );
-
-        speak(
-          "CORTEX ACTIVATED."
-        );
-
+        setReply("CORTEX ACTIVATED.");
+        speak("CORTEX ACTIVATED.");
         return true;
       }
-
       return false;
     };
 
-    // Run once immediately in case we're resuming past
-    // ACTIVATION_DURATION already (e.g. remounted late).
-    const doneImmediately =
-      tick();
+    const doneImmediately = tick();
+    if (doneImmediately) return;
 
-    if (doneImmediately) {
-      return;
-    }
+    const interval = setInterval(() => {
+      const done = tick();
+      if (done) clearInterval(interval);
+    }, 500);
 
-    const interval = setInterval(
-      () => {
-        const done = tick();
-
-        if (done) {
-          clearInterval(interval);
-        }
-      },
-      500
-    );
-
-    return () => {
-      clearInterval(interval);
-    };
+    return () => clearInterval(interval);
   }, [unlocked]);
 
   // --------------------------------------------------
@@ -210,156 +117,57 @@ export default function PersonalAssistantPage() {
   // --------------------------------------------------
 
   useEffect(() => {
-    const unsubscribe =
-      onAuthStateChanged(
-        auth,
-        (user) => {
-          if (!user) {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        setState({
+          loading: false,
+          message: "Sign in with your Battle Crown account first.",
+          ownerVerified: false,
+          firebaseUid: "",
+        });
+        return;
+      }
+
+      user
+        .getIdToken()
+        .then(async (token) => {
+          idTokenRef.current = token;
+
+          try {
+            const response = await fetch("/api/personal/status", {
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            });
+
+            const payload = await response.json();
+
             setState({
               loading: false,
-              message:
-                "Sign in with your Battle Crown account first.",
+              message: payload.success
+                ? "CORTEX Online"
+                : payload.error || "Secure access check failed.",
+              ownerVerified: Boolean(payload.success),
+              firebaseUid: user.uid,
+            });
+          } catch {
+            setState({
+              loading: false,
+              message: "Secure access check failed.",
               ownerVerified: false,
-              firebaseUid: "",
+              firebaseUid: user.uid,
             });
-
-            return;
           }
-
-          user
-            .getIdToken()
-            .then(async (token) => {
-              idTokenRef.current =
-                token;
-
-              try {
-                const response =
-                  await fetch(
-                    "/api/personal/status",
-                    {
-                      headers: {
-                        Authorization:
-                          `Bearer ${token}`,
-                      },
-                    }
-                  );
-
-                const payload = await response.json();
-
-      // ========== BIOMETRIC APPROVAL ==========
-      if (
-        payload?.requires_approval ||
-        payload?.result?.requires_approval ||
-        payload?.error === "approval_required" ||
-        String(payload?.result?.message || "")
-          .toLowerCase()
-          .includes("approve")
-      ) {
-        const risk =
-          payload?.risk ||
-          payload?.result?.risk ||
-          "medium"; // medium | high
-
-        try {
-          setReply(
-            risk === "high"
-              ? "High risk. Fingerprint + second biometric required, Boss."
-              : "Medium risk. Place your fingerprint, Boss."
-          );
-          speak(
-            risk === "high"
-              ? "High risk command. Biometric verification required."
-              : "Medium risk. Biometric verification required."
-          );
-
-          // Medium: 1 biometric
-          await runBiometric("cortex-medium");
-
-          // High: second prompt (face/fingerprint again)
-          if (risk === "high") {
-            setReply("Second verification. Face or fingerprint again, Boss.");
-            speak("Second verification required.");
-            await runBiometric("cortex-high");
-          }
-
-          // Retry same command with approval proof
-          const retry = await fetch("/api/personal/command", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${idTokenRef.current}`,
-            },
-            body: JSON.stringify({
-              command: commandText,
-              approved: true,
-              approval_method:
-                risk === "high" ? "fingerprint_face" : "fingerprint",
-              risk,
-            }),
+        })
+        .catch(() => {
+          setState({
+            loading: false,
+            message: "Authentication token failed.",
+            ownerVerified: false,
+            firebaseUid: user.uid,
           });
-
-          const retryPayload = await retry.json();
-          if (!retryPayload.success) {
-            setReply(`Error: ${retryPayload.error || "Approval failed."}`);
-            speak("Approval failed, Boss.");
-            return;
-          }
-
-          const spoken =
-            retryPayload.result?.message ||
-            retryPayload.result?.data?.message ||
-            "Approved and done, Boss.";
-          setReply(String(spoken).trim());
-          speak(String(spoken).trim());
-          return;
-        } catch (bioErr) {
-          setReply(`Biometric failed: ${bioErr.message}`);
-          speak("Biometric verification failed, Boss.");
-          return;
-        }
-      }
-      // ========== END BIOMETRIC ==========
-
-                setState({
-                  loading: false,
-
-                  message:
-                    payload.success
-                      ? "CORTEX Online"
-                      : payload.error ||
-                        "Secure access check failed.",
-
-                  ownerVerified:
-                    Boolean(
-                      payload.success
-                    ),
-
-                  firebaseUid:
-                    user.uid,
-                });
-              } catch {
-                setState({
-                  loading: false,
-                  message:
-                    "Secure access check failed.",
-                  ownerVerified: false,
-                  firebaseUid:
-                    user.uid,
-                });
-              }
-            })
-            .catch(() => {
-              setState({
-                loading: false,
-                message:
-                  "Authentication token failed.",
-                ownerVerified: false,
-                firebaseUid:
-                  user.uid,
-              });
-            });
-        }
-      );
+        });
+    });
 
     return unsubscribe;
   }, []);
@@ -369,62 +177,32 @@ export default function PersonalAssistantPage() {
   // --------------------------------------------------
 
   useEffect(() => {
-    if (
-      typeof window ===
-      "undefined"
-    ) {
-      return;
-    }
+    if (typeof window === "undefined") return;
 
-    const SR =
-      window.SpeechRecognition ||
-      window.webkitSpeechRecognition;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
 
-    if (!SR) {
-      return;
-    }
+    const recognition = new SR();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = "en-IN";
 
-    const recognition =
-      new SR();
+    recognition.onresult = (event) => {
+      const text = event.results[0][0].transcript;
+      setTranscript(text);
+      sendCommand(text);
+    };
 
-    recognition.continuous =
-      false;
+    recognition.onerror = () => setListening(false);
+    recognition.onend = () => setListening(false);
 
-    recognition.interimResults =
-      false;
-
-    recognition.lang =
-      "en-IN";
-
-    recognition.onresult =
-      (event) => {
-        const text =
-          event.results[0][0]
-            .transcript;
-
-        setTranscript(text);
-
-        sendCommand(text);
-      };
-
-    recognition.onerror =
-      () => {
-        setListening(false);
-      };
-
-    recognition.onend =
-      () => {
-        setListening(false);
-      };
-
-    recognitionRef.current =
-      recognition;
+    recognitionRef.current = recognition;
 
     return () => {
       try {
         recognition.stop();
       } catch {
-        // Ignore stop errors.
+        // ignore
       }
     };
   }, []);
@@ -434,149 +212,46 @@ export default function PersonalAssistantPage() {
   // --------------------------------------------------
 
   function speak(text) {
-    if (
-      typeof window ===
-      "undefined"
-    ) {
-      return;
-    }
-
-    if (
-      !window.speechSynthesis
-    ) {
-      return;
-    }
-
-    if (!text?.trim()) {
-      return;
-    }
+    if (typeof window === "undefined") return;
+    if (!window.speechSynthesis) return;
+    if (!text?.trim()) return;
 
     window.speechSynthesis.cancel();
 
-    const utterance =
-      new SpeechSynthesisUtterance(
-        String(text).trim()
-      );
+    const utterance = new SpeechSynthesisUtterance(String(text).trim());
+    utterance.lang = "en-US";
+    utterance.rate = 0.82;
+    utterance.pitch = 0.48;
+    utterance.volume = 1;
 
-    utterance.lang =
-      "en-US";
-
-    utterance.rate =
-      0.82;
-
-    utterance.pitch =
-      0.48;
-
-    utterance.volume =
-      1;
-
-    const voices =
-      window.speechSynthesis
-        .getVoices();
-
-    const preferred =
-      voices.find(
-        (voice) =>
-          /david|mark|guy|alex|daniel/i.test(
-            voice.name
-          ) &&
-          voice.lang.startsWith(
-            "en"
-          )
-      );
-
-    const american =
-      voices.find(
-        (voice) =>
-          voice.lang ===
-          "en-US"
-      );
-
-    const english =
-      voices.find(
-        (voice) =>
-          voice.lang.startsWith(
-            "en"
-          )
-      );
-
-    const selectedVoice =
-      preferred ||
-      american ||
-      english;
-
-    if (selectedVoice) {
-      utterance.voice =
-        selectedVoice;
-    }
-
-    window.speechSynthesis.speak(
-      utterance
+    const voices = window.speechSynthesis.getVoices();
+    const preferred = voices.find(
+      (voice) =>
+        /david|mark|guy|alex|daniel/i.test(voice.name) &&
+        voice.lang.startsWith("en")
     );
+    const american = voices.find((voice) => voice.lang === "en-US");
+    const english = voices.find((voice) => voice.lang.startsWith("en"));
+    const selectedVoice = preferred || american || english;
+
+    if (selectedVoice) utterance.voice = selectedVoice;
+
+    window.speechSynthesis.speak(utterance);
   }
-
-
-  async function runBiometric(challengeText) {
-  if (typeof window === "undefined" || !window.PublicKeyCredential) {
-    throw new Error("Biometric not supported on this device.");
-  }
-
-  // Simple WebAuthn get (device fingerprint / face)
-  const challenge = Uint8Array.from(
-    btoa(challengeText || `cortex-${Date.now()}`)
-      .replace(/-/g, "+")
-      .replace(/_/g, "/")
-      .padEnd(Math.ceil(btoa(challengeText || `cortex-${Date.now()}`).length / 4) * 4, "=")
-      .split("")
-      .map((c) => c.charCodeAt(0) % 256)
-  );
-
-  // Prefer a random 32-byte challenge
-  const randomChallenge = new Uint8Array(32);
-  crypto.getRandomValues(randomChallenge);
-
-  const publicKey = {
-    challenge: randomChallenge,
-    timeout: 60000,
-    userVerification: "required",
-    rpId: window.location.hostname,
-  };
-
-  const cred = await navigator.credentials.get({ publicKey });
-  if (!cred) throw new Error("Biometric cancelled.");
-
-  return {
-    id: cred.id,
-    type: cred.type,
-    // server verify later – abhi proof of local biometric success
-    ok: true,
-    ts: Date.now(),
-  };
-}
 
   // --------------------------------------------------
   // CORE TAP
   // --------------------------------------------------
 
   function handleCoreTap() {
-    if (
-      !recognitionRef.current ||
-      listening ||
-      busy
-    ) {
+    if (!recognitionRef.current || listening || busy || verification) {
       return;
     }
 
-    if (
-      unlocked &&
-      phase < 6
-    ) {
-      return;
-    }
+    if (unlocked && phase < 6) return;
 
     setTranscript("");
     setReply("");
-
     setListening(true);
 
     try {
@@ -587,237 +262,198 @@ export default function PersonalAssistantPage() {
   }
 
   // --------------------------------------------------
+  // PARSE VERIFICATION_REQUIRED MESSAGE
+  // Format: VERIFICATION_REQUIRED:fingerprint+face:<requestId>
+  // --------------------------------------------------
+
+  function parseVerificationRequired(text) {
+    if (!text || typeof text !== "string") return null;
+    const trimmed = text.trim();
+    if (!trimmed.startsWith("VERIFICATION_REQUIRED:")) return null;
+
+    const parts = trimmed.split(":");
+    // VERIFICATION_REQUIRED : type : uuid
+    if (parts.length < 3) return null;
+
+    const requiredVerification = parts[1]; // fingerprint | fingerprint+face
+    const requestId = parts.slice(2).join(":"); // rest is uuid
+
+    if (!requiredVerification || !requestId) return null;
+
+    return { requiredVerification, requestId };
+  }
+
+  // --------------------------------------------------
   // COMMAND PROCESSING
   // --------------------------------------------------
 
-  async function sendCommand(
-    commandText
-  ) {
-    if (
-      !idTokenRef.current ||
-      !commandText?.trim()
-    ) {
-      return;
-    }
+  async function sendCommand(commandText) {
+    if (!idTokenRef.current || !commandText?.trim()) return;
 
-    const text =
-      commandText
-        .trim()
-        .toLowerCase();
+    const text = commandText.trim().toLowerCase();
 
-    // ----------------------------------------------
-    // LOCKED STATE
-    // ----------------------------------------------
-
+    // LOCKED
     if (!unlockedRef.current) {
       if (
-        text.includes(
-          "cortex unlock"
-        ) ||
-        text.includes(
-          "cortex, unlock"
-        )
+        text.includes("cortex unlock") ||
+        text.includes("cortex, unlock")
       ) {
-        unlockedRef.current =
-          true;
-
+        unlockedRef.current = true;
         setUnlocked(true);
-
         setPhase(0);
-
-        setReply(
-          "Activation sequence initiated."
-        );
-
-        // IMPORTANT:
-        // Do NOT speak here.
-        //
-        // CORTEX will remain silent
-        // during the entire 60-second
-        // cinematic activation.
-        //
-        // Voice occurs only at phase 6.
-
+        setReply("Activation sequence initiated.");
         return;
       }
 
-      setReply(
-        "Access denied. Say: cortex unlock"
-      );
-
-      speak(
-        "Access denied. Say cortex unlock"
-      );
-
+      setReply("Access denied. Say: cortex unlock");
+      speak("Access denied. Say cortex unlock");
       return;
     }
 
-    // ----------------------------------------------
     // ACTIVATING
-    // ----------------------------------------------
-
     if (phaseRef.current < 6) {
-      setReply(
-        "Activation in progress. Stand by, Boss."
-      );
-
+      setReply("Activation in progress. Stand by, Boss.");
       return;
     }
 
-    // ----------------------------------------------
     // LOCK
-    // ----------------------------------------------
-
-    if (
-      text.includes(
-        "cortex lock"
-      ) ||
-      text.includes(
-        "cortex, lock"
-      )
-    ) {
-      unlockedRef.current =
-        false;
-
+    if (text.includes("cortex lock") || text.includes("cortex, lock")) {
+      unlockedRef.current = false;
       setUnlocked(false);
-
       setPhase(0);
-
-      setReply(
-        "Systems locked."
-      );
-
-      speak(
-        "Systems locked."
-      );
-
+      setReply("Systems locked.");
+      speak("Systems locked.");
       return;
     }
 
-    // ----------------------------------------------
-    // NORMAL CORTEX COMMAND
-    // ----------------------------------------------
-
+    // NORMAL COMMAND
     setBusy(true);
 
     try {
-      const response =
-        await fetch(
-          "/api/personal/command",
-          {
-            method: "POST",
+      const response = await fetch("/api/personal/command", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idTokenRef.current}`,
+        },
+        body: JSON.stringify({ command: commandText }),
+      });
 
-            headers: {
-              "Content-Type":
-                "application/json",
-
-              Authorization:
-                `Bearer ${idTokenRef.current}`,
-            },
-
-            body: JSON.stringify({
-              command:
-                commandText,
-            }),
-          }
-        );
-
-      const payload =
-        await response.json();
+      const payload = await response.json();
 
       if (!payload.success) {
-        const errorMessage =
-          `Error: ${
-            payload.error ||
-            "Command failed."
-          }`;
-
-        setReply(
-          errorMessage
-        );
-
-        speak(
-          "Command failed, Boss."
-        );
-
+        const errorMessage = `Error: ${payload.error || "Command failed."}`;
+        setReply(errorMessage);
+        speak("Command failed, Boss.");
         return;
       }
 
       const spoken =
         payload.result?.message ||
         payload.result?.data?.message ||
+        payload.message ||
         "Done, Boss.";
 
-      const clean =
-        String(spoken).trim();
+      const clean = String(spoken).trim();
+
+      // ---- VERIFICATION GATE ----
+      const verificationInfo = parseVerificationRequired(clean);
+
+      if (verificationInfo) {
+        const agentId =
+          payload.result?.agent_id ||
+          payload.agent_id ||
+          payload.result?.data?.agent_id ||
+          "cortex";
+
+        setReply(
+          verificationInfo.requiredVerification === "fingerprint+face"
+            ? "High risk. Biometric + pattern verification required, Boss."
+            : "Verification required, Boss."
+        );
+        speak(
+          verificationInfo.requiredVerification === "fingerprint+face"
+            ? "High risk command. Identity verification required."
+            : "Identity verification required."
+        );
+
+        setVerification({
+          requiredVerification: verificationInfo.requiredVerification,
+          requestId: verificationInfo.requestId,
+          agentId,
+        });
+        return;
+      }
 
       setReply(clean);
-
       speak(clean);
     } catch (error) {
-      const message =
-        error?.message ||
-        "Something went wrong.";
-
-      setReply(
-        `Error: ${message}`
-      );
-
-      speak(
-        "Something went wrong, Boss."
-      );
+      const message = error?.message || "Something went wrong.";
+      setReply(`Error: ${message}`);
+      speak("Something went wrong, Boss.");
     } finally {
       setBusy(false);
     }
   }
 
   // --------------------------------------------------
+  // VERIFICATION SUCCESS / CANCEL
+  // --------------------------------------------------
+
+  function handleVerificationSuccess(data) {
+    setVerification(null);
+
+    const spoken =
+      data?.result?.message ||
+      data?.result?.data?.message ||
+      data?.message ||
+      "Approved and done, Boss.";
+
+    const clean = String(spoken).trim();
+    setReply(clean);
+    speak(clean);
+  }
+
+  function handleVerificationCancel() {
+    setVerification(null);
+    setReply("Verification cancelled, Boss.");
+    speak("Verification cancelled.");
+  }
+
+  // --------------------------------------------------
   // LOADING / ACCESS SCREEN
   // --------------------------------------------------
 
-  if (
-    state.loading ||
-    !state.ownerVerified
-  ) {
+  if (state.loading || !state.ownerVerified) {
     return (
       <main className="min-h-screen bg-black flex items-center justify-center p-6">
         <div className="text-center">
           <p className="text-red-500 text-sm tracking-[0.4em] mb-3">
             PERSONAL COMMAND CENTER
           </p>
-
-          <p className="text-gray-300 text-sm">
-            {state.message}
-          </p>
+          <p className="text-gray-300 text-sm">{state.message}</p>
         </div>
       </main>
     );
   }
 
-  // --------------------------------------------------
-  // STATUS
-  // --------------------------------------------------
+  const full = phase >= 6;
 
-  const full =
-    phase >= 6;
-
-  const activityLabel =
-    !unlocked
-      ? "LOCKED"
-      : phase < 6
-      ? "ACTIVATING"
-      : listening
-      ? "LISTENING"
-      : busy
-      ? "PROCESSING"
-      : "ONLINE";
+  const activityLabel = !unlocked
+    ? "LOCKED"
+    : phase < 6
+    ? "ACTIVATING"
+    : listening
+    ? "LISTENING"
+    : busy
+    ? "PROCESSING"
+    : verification
+    ? "VERIFYING"
+    : "ONLINE";
 
   return (
     <main className="relative min-h-screen bg-black overflow-hidden flex flex-col items-center justify-center select-none">
-      {/* ------------------------------------------------
-          CINEMATIC BACKGROUND
-      ------------------------------------------------ */}
-
+      {/* Background */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
@@ -826,10 +462,7 @@ export default function PersonalAssistantPage() {
               ? `
                 radial-gradient(
                   circle at center,
-                  rgba(150,0,0,${
-                    0.05 +
-                    phase * 0.018
-                  }) 0%,
+                  rgba(150,0,0,${0.05 + phase * 0.018}) 0%,
                   rgba(70,0,0,0.035) 30%,
                   transparent 67%
                 )
@@ -841,12 +474,9 @@ export default function PersonalAssistantPage() {
                   transparent 60%
                 )
               `,
-          transition:
-            "background 2s ease",
+          transition: "background 2s ease",
         }}
       />
-
-      {/* Atmospheric vignette */}
 
       <div
         className="absolute inset-0 pointer-events-none"
@@ -856,44 +486,29 @@ export default function PersonalAssistantPage() {
         }}
       />
 
-      {/* ------------------------------------------------
-          HEADER
-      ------------------------------------------------ */}
-
+      {/* Header */}
       <div className="absolute top-8 left-0 right-0 text-center z-30 pointer-events-none">
         <p
           className="text-red-500 text-xs tracking-[0.55em] font-bold"
-          style={{
-            textShadow:
-              "0 0 12px rgba(220,38,38,0.85)",
-          }}
+          style={{ textShadow: "0 0 12px rgba(220,38,38,0.85)" }}
         >
           C O R T E X
         </p>
-
         <p
           className={`text-[10px] mt-2 tracking-[0.35em] ${
-            unlocked
-              ? "text-red-400/80"
-              : "text-gray-600"
+            unlocked ? "text-red-400/80" : "text-gray-600"
           }`}
         >
           {activityLabel}
         </p>
       </div>
 
-      {/* ------------------------------------------------
-          WEBGL CORE
-      ------------------------------------------------ */}
-
+      {/* Core */}
       <button
         type="button"
         onClick={handleCoreTap}
         disabled={
-          listening ||
-          busy ||
-          (unlocked &&
-            phase < 6)
+          listening || busy || !!verification || (unlocked && phase < 6)
         }
         aria-label="Cortex Core"
         className="relative z-20 flex items-center justify-center focus:outline-none disabled:cursor-default"
@@ -904,8 +519,7 @@ export default function PersonalAssistantPage() {
           minWidth: "360px",
           maxWidth: "620px",
           maxHeight: "620px",
-          perspective:
-            "1200px",
+          perspective: "1200px",
         }}
       >
         <CortexCore
@@ -915,40 +529,32 @@ export default function PersonalAssistantPage() {
         />
       </button>
 
-      {/* ------------------------------------------------
-          TRANSCRIPT / REPLY
-      ------------------------------------------------ */}
-
+      {/* Transcript / Reply */}
       <div className="absolute bottom-28 left-0 right-0 z-30 flex flex-col items-center px-6 space-y-2 pointer-events-none">
         {transcript && (
           <p className="text-xs text-gray-400 max-w-xs text-center">
-            <span className="text-red-500 font-semibold">
-              You:
-            </span>{" "}
+            <span className="text-red-500 font-semibold">You:</span>{" "}
             {transcript}
           </p>
         )}
 
         {reply && (
           <p className="text-xs text-gray-200 max-w-sm text-center">
-            <span className="text-red-500 font-semibold">
-              CORTEX:
-            </span>{" "}
+            <span className="text-red-500 font-semibold">CORTEX:</span>{" "}
             {reply}
           </p>
         )}
       </div>
 
-      {/* ------------------------------------------------
-          BOTTOM STATUS
-      ------------------------------------------------ */}
-
+      {/* Bottom status */}
       <div className="absolute bottom-14 left-0 right-0 text-center z-30 pointer-events-none">
         <p className="text-gray-500 text-xs tracking-[0.2em]">
           {!unlocked
             ? "Locked — say cortex unlock"
             : phase < 6
             ? "Activation sequence in progress…"
+            : verification
+            ? "Identity verification in progress…"
             : listening
             ? "Listening…"
             : busy
@@ -958,6 +564,18 @@ export default function PersonalAssistantPage() {
             : ""}
         </p>
       </div>
+
+      {/* Verification Modal */}
+      {verification && (
+        <VerificationModal
+          requiredVerification={verification.requiredVerification}
+          requestId={verification.requestId}
+          agentId={verification.agentId}
+          authToken={idTokenRef.current}
+          onSuccess={handleVerificationSuccess}
+          onCancel={handleVerificationCancel}
+        />
+      )}
     </main>
   );
 }
