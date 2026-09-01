@@ -58,14 +58,14 @@ export async function POST(request) {
     );
   }
 
-  const { credentialID, credentialPublicKey, counter } = verification.registrationInfo;
+  const { credential } = verification.registrationInfo;
 
-  await updateSecurityRow({
-    webauthnCredId: Buffer.from(credentialID).toString("base64url"),
-    webauthnPublicKey: Buffer.from(credentialPublicKey).toString("base64url"),
-    webauthnCounter: counter,
-    webauthnChallenge: null,
-  });
+await updateSecurityRow({
+  webauthnCredId: credential.id,
+  webauthnPublicKey: Buffer.from(credential.publicKey).toString("base64url"),
+  webauthnCounter: credential.counter,
+  webauthnChallenge: null,
+});
 
   return NextResponse.json({ success: true });
 }
