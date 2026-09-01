@@ -55,6 +55,7 @@ model Tournament {
   roomId       String?
   roomPassword String?
   startTime    DateTime? @db.Timestamp(6)
+  reminderSent Boolean   @default(false)
 
   @@map("tournaments")
 }
@@ -195,7 +196,7 @@ model PersonalPasskeyChallenge {
 
 // ============================================================
 // ADD THIS MODEL TO YOUR EXISTING prisma/schema.prisma
-// (do not overwrite your existing schema — just paste this
+// do not overwrite your existing schema — just paste this
 // model in alongside your other models, then run:
 //   npx prisma migrate dev --name add_cortex_security
 // ============================================================
@@ -217,3 +218,18 @@ model CortexSecurity {
   updatedAt         DateTime @updatedAt
 }
 
+model Alert {
+  id          Int      @id @default(autoincrement())
+  type        String   // "deposit" | "withdrawal" | "new_user" | "tournament" | "error" | "news"
+  severity    String   // "low" | "medium" | "high"
+  title       String
+  message     String
+  refId       String?  // related record ka id (jaise userId, tournamentId)
+  notified    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
+model MonitorState {
+  id            Int      @id @default(1)
+  lastCheckedAt DateTime @default(now())
+}
