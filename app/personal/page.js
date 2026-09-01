@@ -26,7 +26,8 @@ export default function PersonalAssistantPage() {
   // null = checking, true = ready, false = need setup
   const [securityReady, setSecurityReady] = useState(null);
 
-  // Verification modal: { requiredVerification, requestId, agentId } | null
+  // Verification modal:
+  // { requiredVerification, requestId, agentId, remainingSteps } | null
   const [verification, setVerification] = useState(null);
 
   const recognitionRef = useRef(null);
@@ -268,7 +269,7 @@ export default function PersonalAssistantPage() {
   }
 
   // --------------------------------------------------
-  // PARSE VERIFICATION_REQUIRED
+  // PARSE VERIFICATION_REQUIRED (legacy text-based fallback)
   // Format: VERIFICATION_REQUIRED:fingerprint+face:<requestId>
   // --------------------------------------------------
 
@@ -285,6 +286,45 @@ export default function PersonalAssistantPage() {
 
     if (!requiredVerification || !requestId) return null;
     return { requiredVerification, requestId };
+  }
+
+  // A "high" risk step needs the fuller fingerprint+face check;
+  // anything else falls back to a single fingerprint step. Used
+  // when the backend gives us a structured risk level instead of
+  // (or in addition to) the legacy VERIFICATION_REQUIRED text.
+  function verificationLevelForRisk(risk) {
+    return risk === "high" ? "fingerprint+face" : "fingerprint";
+  }
+
+  // Given a full API response payload (from either /api/personal/command
+  // or a chain-resume call), figures out whether it's asking for approval
+  // and returns everything VerificationModal needs — or null if not.
+  function extractApprovalRequest(payload) {
+    const result = payload?.result || {};
+    const requiresApproval =
+      payload?.requires_approval === true || result?.requires_approval === true;
+
+    if (!requiresApproval) return null;
+
+    const spoken = String(result?.message || payload?.message || "");
+    const legacy = parseVerificationRequired(spoken);
+
+    const requiredVerification =
+      legacy?.requiredVerification || verificationLevelForRisk(result?.risk);
+
+    const requestId = legacy?.requestId || result?.request_id || null;
+    const agentId = result?.agent_id || payload?.agent_id || "cortex";
+
+    if (!requestId) return null;
+
+    return {
+      requiredVerification,
+      requestId,
+      agentId,
+      remainingSteps: Array.isArray(result?.remaining_steps)
+        ? result.remaining_steps
+        : null,
+    };
   }
 
   // --------------------------------------------------
@@ -342,6 +382,22 @@ export default function PersonalAssistantPage() {
       const payload = await response.json();
 
       if (!payload.success) {
+        const approval = extractApprovalRequest(payload);
+        if (approval) {
+          setReply(
+            approval.requiredVerification === "fingerprint+face"
+              ? "High risk. Biometric + pattern verification required, Boss."
+              : "Verification required, Boss."
+          );
+          speak(
+            approval.requiredVerification === "fingerprint+face"
+              ? "High risk command. Identity verification required."
+              : "Identity verification required."
+          );
+          setVerification(approval);
+          return;
+        }
+
         setReply(`Error: ${payload.error || "Command failed."}`);
         speak("Command failed, Boss.");
         return;
@@ -354,33 +410,6 @@ export default function PersonalAssistantPage() {
         "Done, Boss.";
 
       const clean = String(spoken).trim();
-      const verificationInfo = parseVerificationRequired(clean);
-
-      if (verificationInfo) {
-        const agentId =
-          payload.result?.agent_id ||
-          payload.agent_id ||
-          payload.result?.data?.agent_id ||
-          "cortex";
-
-        setReply(
-          verificationInfo.requiredVerification === "fingerprint+face"
-            ? "High risk. Biometric + pattern verification required, Boss."
-            : "Verification required, Boss."
-        );
-        speak(
-          verificationInfo.requiredVerification === "fingerprint+face"
-            ? "High risk command. Identity verification required."
-            : "Identity verification required."
-        );
-
-        setVerification({
-          requiredVerification: verificationInfo.requiredVerification,
-          requestId: verificationInfo.requestId,
-          agentId,
-        });
-        return;
-      }
 
       setReply(clean);
       speak(clean);
@@ -397,6 +426,21 @@ export default function PersonalAssistantPage() {
   // --------------------------------------------------
 
   function handleVerificationSuccess(data) {
+    // The chain may have stopped again because the step right after
+    // this one also needs approval — in that case, reopen the modal
+    // with the new details instead of closing it.
+    const nextApproval = extractApprovalRequest(data);
+    if (nextApproval) {
+      setVerification(nextApproval);
+      setReply(
+        nextApproval.requiredVerification === "fingerprint+face"
+          ? "High risk. Biometric + pattern verification required, Boss."
+          : "Verification required, Boss."
+      );
+      speak("Next step also needs verification, Boss.");
+      return;
+    }
+
     setVerification(null);
 
     const spoken =
@@ -577,6 +621,7 @@ export default function PersonalAssistantPage() {
           requiredVerification={verification.requiredVerification}
           requestId={verification.requestId}
           agentId={verification.agentId}
+          remainingSteps={verification.remainingSteps}
           authToken={idTokenRef.current}
           onSuccess={handleVerificationSuccess}
           onCancel={handleVerificationCancel}

@@ -2,6 +2,7 @@
 import { verifyAuthenticationResponse } from "@simplewebauthn/server";
 import { requirePersonalOwner } from "../../../../lib/personal-owner";
 import { getSecurityRow, updateSecurityRow } from "../../../../lib/cortex/security";
+import { logCortexError } from "../../../../lib/cortex/errorLogger";
 
 const RP_ID = process.env.CORTEX_RP_ID;
 const ORIGIN = process.env.CORTEX_ORIGIN;
@@ -38,18 +39,19 @@ export async function POST(request) {
 
   let verification;
   try {
-   verification = await verifyAuthenticationResponse({
-  response: body,
-  expectedChallenge: security.webauthnChallenge,
-  expectedOrigin: ORIGIN,
-  expectedRPID: RP_ID,
-  credential: {
-    id: security.webauthnCredId,
-    publicKey: Buffer.from(security.webauthnPublicKey, "base64url"),
-    counter: security.webauthnCounter,
-  },
-});
+    verification = await verifyAuthenticationResponse({
+      response: body,
+      expectedChallenge: security.webauthnChallenge,
+      expectedOrigin: ORIGIN,
+      expectedRPID: RP_ID,
+      credential: {
+        id: security.webauthnCredId,
+        publicKey: Buffer.from(security.webauthnPublicKey, "base64url"),
+        counter: security.webauthnCounter,
+      },
+    });
   } catch (err) {
+    await logCortexError("cortex/security/auth-verify", err);
     return NextResponse.json(
       { success: false, error: err instanceof Error ? err.message : "Verification failed." },
       { status: 400 }

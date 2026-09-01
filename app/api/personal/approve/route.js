@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requirePersonalOwner } from "../../../lib/personal-owner";
+import { logCortexError } from "../../../lib/cortex/errorLogger";
 
 const CORTEX_BRIDGE_URL = process.env.CORTEX_BRIDGE_URL;
 const CORTEX_BRIDGE_TOKEN = process.env.CORTEX_BRIDGE_TOKEN;
@@ -53,6 +54,11 @@ export async function POST(request) {
     const data = await cortexResponse.json();
 
     if (!cortexResponse.ok) {
+      await logCortexError(
+        "personal/approve",
+        new Error(data?.detail || "Approval failed.")
+      );
+
       return NextResponse.json(
         {
           success: false,
@@ -64,6 +70,9 @@ export async function POST(request) {
 
     return NextResponse.json({ success: true, result: data });
   } catch (error) {
+    console.error(error);
+    await logCortexError("personal/approve", error);
+
     return NextResponse.json(
       {
         success: false,

@@ -2,6 +2,7 @@
 import { requirePersonalOwner } from "../../../lib/personal-owner";
 import { cortexDispatch } from "../../../lib/cortex/client";
 import { askCortexLLM } from "../../../lib/cortex/llm";
+import { logCortexError } from "../../../lib/cortex/errorLogger";
 
 export async function POST(request) {
   const { uid, response } = await requirePersonalOwner(request);
@@ -144,6 +145,8 @@ export async function POST(request) {
     });
   } catch (error) {
     console.error("Personal command failed:", error);
+    await logCortexError("personal/command", error);
+
     return NextResponse.json(
       {
         success: false,

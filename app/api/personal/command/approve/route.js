@@ -1,6 +1,7 @@
 ﻿import { NextResponse } from "next/server";
 import { requirePersonalOwner } from "../../../../lib/personal-owner";
 import { cortexApprove } from "../../../../lib/cortex/client";
+import { logCortexError } from "../../../../lib/cortex/errorLogger";
 
 export async function POST(request) {
   const { response } = await requirePersonalOwner(request);
@@ -45,6 +46,9 @@ export async function POST(request) {
     const result = await cortexApprove({ requestId, agentId });
     return NextResponse.json({ success: true, result });
   } catch (error) {
+    console.error(error);
+    await logCortexError("personal/command/approve", error);
+
     return NextResponse.json(
       {
         success: false,

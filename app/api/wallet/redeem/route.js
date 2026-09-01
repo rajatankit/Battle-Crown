@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
+import { logCortexError } from "../../../lib/cortex/errorLogger";
 
 const prisma = new PrismaClient();
 
@@ -15,7 +16,6 @@ export async function POST(request) {
       );
     }
 
-    // 1. Pehle user ko dhoondo
     const user = await prisma.user.findUnique({
       where: { email: email },
     });
@@ -27,10 +27,8 @@ export async function POST(request) {
       );
     }
 
-  // Current crowns ko strictly integer mein convert karo
     const currentCrowns = parseInt(user.crowns || 0, 10);
 
-    // Minimum 20 crowns requirement check
     if (currentCrowns < 20) {
       return NextResponse.json(
         { success: false, error: "You need at least 20 Crowns to redeem!" },
@@ -38,12 +36,10 @@ export async function POST(request) {
       );
     }
 
-    // Explicitly integer subtraction ensure karo
     const crownsToDeduct = 20;
     const depositMoneyToAdd = 10;
-    const remainingCrowns = Number(currentCrowns) - Number(crownsToDeduct); // 1001 - 20 = 981
+    const remainingCrowns = Number(currentCrowns) - Number(crownsToDeduct);
 
-    // 3. Database update karo
     const updatedUser = await prisma.user.update({
       where: { email: email },
       data: {
@@ -72,6 +68,7 @@ export async function POST(request) {
     );
   } catch (error) {
     console.error("REDEEM API ERROR:", error);
+    await logCortexError("wallet/redeem", error);
     return NextResponse.json(
       { success: false, error: error.message || "Internal Server Error" },
       { status: 500, headers: { "Content-Type": "application/json" } }

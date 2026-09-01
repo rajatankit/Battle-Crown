@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
+import { logCortexError } from "../../../lib/cortex/errorLogger";
 
 const prisma = new PrismaClient();
 
@@ -32,6 +33,7 @@ export async function GET(request) {
     });
   } catch (err) {
     console.error(err);
+    await logCortexError("wallet/withdraw:GET", err);
 
     return NextResponse.json(
       {
@@ -73,7 +75,7 @@ export async function POST(request) {
       );
     }
 
-   const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const updatedUser = await tx.user.update({
         where: { email: email },
         data: {
@@ -112,6 +114,7 @@ export async function POST(request) {
     );
   } catch (error) {
     console.error("WITHDRAW API ERROR:", error);
+    await logCortexError("wallet/withdraw:POST", error);
     return NextResponse.json(
       { success: false, error: error.message || "Internal Server Error" },
       { status: 500, headers: { "Content-Type": "application/json" } }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "../../../lib/prisma";
 import { db } from "../../../lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
+import { logCortexError } from "../../../lib/cortex/errorLogger";
 
 export async function POST(req) {
   try {
@@ -197,8 +198,6 @@ export async function POST(req) {
 
     // =========================================================
     // ENTRY FEE
-    //
-    // MatchHistory stores entryFee as String
     // =========================================================
 
     const entryFee = Number(match.entryFee || 0);
@@ -215,9 +214,6 @@ export async function POST(req) {
 
     // =========================================================
     // TOTAL ENTRY COLLECTION
-    //
-    // Example:
-    // 50 players × ₹10 = ₹500
     // =========================================================
 
     const totalCollection =
@@ -225,10 +221,6 @@ export async function POST(req) {
 
     // =========================================================
     // PRIZE STRUCTURE
-    //
-    // 1st = 20%
-    // 2nd = 10%
-    // 3rd = 5%
     // =========================================================
 
     const firstPrize =
@@ -270,9 +262,6 @@ export async function POST(req) {
 
     // =========================================================
     // PER KILL REWARD
-    //
-    // Firebase tournament killReward
-    // Default = ₹5
     // =========================================================
 
     const killReward = Number(
@@ -289,7 +278,6 @@ export async function POST(req) {
     const totalPrize =
       rankPrize + killPrize;
 
-    // Round to 2 decimal places
     const finalPrize =
       Math.round(totalPrize * 100) / 100;
 
@@ -299,9 +287,6 @@ export async function POST(req) {
 
     const result = await prisma.$transaction(
       async (tx) => {
-
-        // First mark match as Approved ONLY if
-        // it has not already been processed.
         const updatedMatch =
           await tx.matchHistory.updateMany({
             where: {
@@ -318,23 +303,11 @@ export async function POST(req) {
             },
           });
 
-        // If 0 rows updated, another request already
-        // processed this match.
         if (updatedMatch.count === 0) {
           throw new Error(
             "MATCH_ALREADY_PROCESSED"
           );
         }
-
-        // =====================================================
-        // ADD MONEY TO WINNINGS WALLET
-        //
-        // IMPORTANT:
-        // matchesPlayed is NOT incremented here.
-        //
-        // Your tournament join route already does:
-        // matchesPlayed +1
-        // =====================================================
 
         const updatedUser =
           await tx.user.update({
@@ -349,10 +322,6 @@ export async function POST(req) {
               lastMatchAt: new Date(),
             },
           });
-
-        // =====================================================
-        // CREATE WALLET TRANSACTION
-        // =====================================================
 
         const walletTransaction =
           await tx.walletTransaction.create({
@@ -436,6 +405,8 @@ export async function POST(req) {
         { status: 400 }
       );
     }
+
+    await logCortexError("admin/verify-match", error);
 
     return NextResponse.json(
       {

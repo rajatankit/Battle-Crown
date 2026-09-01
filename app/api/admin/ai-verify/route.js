@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { logCortexError } from "../../../lib/cortex/errorLogger";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
@@ -13,11 +14,9 @@ export async function POST(req) {
       });
     }
 
-    // Image download
     const imageRes = await fetch(imageUrl);
     const buffer = Buffer.from(await imageRes.arrayBuffer());
 
-    // Latest Gemini Lite
     const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash-lite",
     });
@@ -58,7 +57,6 @@ If screenshot is fake or unreadable:
 
     const text = result.response.text();
 
-    // Remove markdown if Gemini wraps JSON
     const cleaned = text
       .replace(/```json/g, "")
       .replace(/```/g, "")
@@ -72,6 +70,7 @@ If screenshot is fake or unreadable:
     });
   } catch (err) {
     console.error(err);
+    await logCortexError("admin/ai-verify", err);
 
     return Response.json({
       success: false,

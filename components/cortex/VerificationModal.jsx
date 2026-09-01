@@ -19,6 +19,10 @@ export default function VerificationModal({
   requestId,
   agentId,
   authToken,
+  // NEW: the full remaining_steps array from the requires_approval
+  // response (the currently-blocking step is remainingSteps[0]).
+  // Optional — single-step approvals work exactly as before if omitted.
+  remainingSteps,
   onSuccess,
   onCancel,
 }) {
@@ -37,6 +41,8 @@ export default function VerificationModal({
   const finish = useCallback(async () => {
     setFinishing(true);
     try {
+      // Step 1: approve the actual pending action on the backend
+      // (unchanged from before).
       const res = await fetch("/api/personal/command/approve", {
         method: "POST",
         headers: authHeaders(),
@@ -52,12 +58,45 @@ export default function VerificationModal({
         throw new Error(data?.error || "Approval failed.");
       }
 
+      // Step 2: if this was part of a multi-step chain and there are
+      // steps after this one, resume the chain — skipping the LLM
+      // entirely by sending back the exact remaining steps.
+      const stepsAfterThis =
+        Array.isArray(remainingSteps) && remainingSteps.length > 1
+          ? remainingSteps.slice(1)
+          : null;
+
+      if (stepsAfterThis) {
+        const resumeRes = await fetch("/api/personal/command", {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({
+            approved: true,
+            remaining_steps: stepsAfterThis,
+          }),
+        });
+        const resumeData = await resumeRes.json();
+
+        if (!resumeRes.ok || !resumeData.success) {
+          // The chain may have stopped again because the NEXT step
+          // also needs approval. Hand that back to the parent as-is
+          // (via onSuccess) so it can decide whether to open another
+          // VerificationModal for the next step — this component
+          // does not loop on its own.
+          onSuccess({ ...resumeData, chained_from: data });
+          return;
+        }
+
+        onSuccess({ ...resumeData, chained_from: data });
+        return;
+      }
+
       onSuccess(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Approval failed.");
       setFinishing(false);
     }
-  }, [requestId, agentId, onSuccess, authHeaders]);
+  }, [requestId, agentId, remainingSteps, onSuccess, authHeaders]);
 
   const advance = useCallback(() => {
     setStepIndex((prev) => {

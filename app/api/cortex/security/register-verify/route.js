@@ -2,9 +2,10 @@
 import { verifyRegistrationResponse } from "@simplewebauthn/server";
 import { requirePersonalOwner } from "../../../../lib/personal-owner";
 import { getSecurityRow, updateSecurityRow } from "../../../../lib/cortex/security";
+import { logCortexError } from "../../../../lib/cortex/errorLogger";
 
 const RP_ID = process.env.CORTEX_RP_ID;
-const ORIGIN = process.env.CORTEX_ORIGIN; // e.g. "https://battle-crown.vercel.app"
+const ORIGIN = process.env.CORTEX_ORIGIN;
 
 export async function POST(request) {
   const { response } = await requirePersonalOwner(request);
@@ -45,6 +46,7 @@ export async function POST(request) {
       expectedRPID: RP_ID,
     });
   } catch (err) {
+    await logCortexError("cortex/security/register-verify", err);
     return NextResponse.json(
       { success: false, error: err instanceof Error ? err.message : "Verification failed." },
       { status: 400 }
@@ -60,12 +62,12 @@ export async function POST(request) {
 
   const { credential } = verification.registrationInfo;
 
-await updateSecurityRow({
-  webauthnCredId: credential.id,
-  webauthnPublicKey: Buffer.from(credential.publicKey).toString("base64url"),
-  webauthnCounter: credential.counter,
-  webauthnChallenge: null,
-});
+  await updateSecurityRow({
+    webauthnCredId: credential.id,
+    webauthnPublicKey: Buffer.from(credential.publicKey).toString("base64url"),
+    webauthnCounter: credential.counter,
+    webauthnChallenge: null,
+  });
 
   return NextResponse.json({ success: true });
 }

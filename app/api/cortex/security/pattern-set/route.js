@@ -2,6 +2,7 @@
 import crypto from "crypto";
 import { requirePersonalOwner } from "../../../../lib/personal-owner";
 import { updateSecurityRow } from "../../../../lib/cortex/security";
+import { logCortexError } from "../../../../lib/cortex/errorLogger";
 
 function hashPattern(pattern, salt) {
   return crypto.createHash("sha256").update(salt + pattern).digest("hex");
@@ -23,7 +24,6 @@ export async function POST(request) {
 
   const pattern = typeof body?.pattern === "string" ? body.pattern.trim() : "";
 
-  // Pattern is a "-" joined list of dot indices, e.g. "0-1-2-5-8".
   const dots = pattern.split("-").filter(Boolean);
 
   if (dots.length < 4) {
@@ -33,10 +33,18 @@ export async function POST(request) {
     );
   }
 
-  const salt = crypto.randomBytes(16).toString("hex");
-  const hash = hashPattern(pattern, salt);
+  try {
+    const salt = crypto.randomBytes(16).toString("hex");
+    const hash = hashPattern(pattern, salt);
 
-  await updateSecurityRow({ patternHash: hash, patternSalt: salt });
+    await updateSecurityRow({ patternHash: hash, patternSalt: salt });
 
-  return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    await logCortexError("cortex/security/pattern-set", err);
+    return NextResponse.json(
+      { success: false, error: err instanceof Error ? err.message : "Failed to save pattern." },
+      { status: 500 }
+    );
+  }
 }

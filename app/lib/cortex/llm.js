@@ -24,7 +24,10 @@ or SWITCH: NOVA
 or SWITCH: ATLAS
 or SWITCH: SENTINEL
 
-2) If user wants a REAL ACTION, reply ONLY in this exact format:
+2) If user wants a REAL ACTION, reply with one or more lines in this exact format
+(one line per action). Use MULTIPLE lines only when the command genuinely needs
+more than one step done in sequence (e.g. "warn this user and hold their withdrawal"):
+TOOL: AGENT_ID:action
 TOOL: AGENT_ID:action
 
 Only use these exact AGENT_ID:action pairs (never invent new ones):
@@ -78,6 +81,10 @@ TOOL: VAULT:store_room_data
 User: match result update karo
 TOOL: ORION:manage_match
 
+User: is user ko warn karo aur uska withdrawal hold karo
+TOOL: LYRA:send_notification
+TOOL: NOVA:report_suspicious_transaction
+
 User: kaise ho
 I am fully operational, Boss. How may I assist you?
 `;
@@ -118,6 +125,8 @@ const VALID_TOOL_PAIRS = new Set([
   "SENTINEL:read_security_logs",
 ]);
 
+const MAX_STEPS_PER_COMMAND = 5;
+
 function parseLLMOutput(raw) {
   let text = String(raw || "")
     .replace(/```/g, "")
@@ -134,24 +143,42 @@ function parseLLMOutput(raw) {
     };
   }
 
-  // TOOL: AGENT_ID:action
-  const toolMatch = text.match(
-    /^TOOL\s*:\s*([A-Z]+)\s*:\s*([a-z_]+)/i
-  );
-  if (toolMatch) {
-    const agentId = toolMatch[1].toUpperCase();
-    const action = toolMatch[2].toLowerCase();
+  // TOOL: AGENT_ID:action  (one or more lines)
+  const toolLineRegex = /^TOOL\s*:\s*([A-Z]+)\s*:\s*([a-z_]+)/i;
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const steps = [];
+  let sawUnknownTool = false;
+
+  for (const line of lines) {
+    const m = line.match(toolLineRegex);
+    if (!m) continue;
+
+    const agentId = m[1].toUpperCase();
+    const action = m[2].toLowerCase();
     const pairKey = `${agentId}:${action}`;
 
     if (VALID_TOOL_PAIRS.has(pairKey)) {
-      return {
-        type: "tool",
-        agent_id: agentId,
-        action: action,
-      };
+      steps.push({ agent_id: agentId, action });
+    } else {
+      sawUnknownTool = true;
+    }
+  }
+
+  if (steps.length > 0) {
+    if (steps.length > MAX_STEPS_PER_COMMAND) {
+      steps.length = MAX_STEPS_PER_COMMAND;
     }
 
-    // Model returned an agent/action pair that isn't in our
+    if (steps.length === 1) {
+      // Same shape as before — nothing downstream breaks.
+      return { type: "tool", agent_id: steps[0].agent_id, action: steps[0].action };
+    }
+
+    return { type: "tool_multi", steps };
+  }
+
+  if (sawUnknownTool) {
+    // Model returned only agent/action pairs that aren't in our
     // known list. Fall through to chat instead of dispatching
     // something the backend will reject anyway.
     return {

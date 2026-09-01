@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { PrismaClient } from "@prisma/client";
+import { logCortexError } from "../../../lib/cortex/errorLogger";
 
 const prisma = new PrismaClient();
 
@@ -29,6 +30,7 @@ export async function GET(req) {
     return NextResponse.json({ requests });
   } catch (error) {
     console.error(error);
+    await logCortexError("admin/withdraw", error);
 
     return NextResponse.json(
       { error: error.message },

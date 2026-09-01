@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server";
+import { logCortexError } from "../../../lib/cortex/errorLogger";
 
 export async function POST(req) {
   try {
     const { email, amount } = await req.json();
 
-    // Direct hardcode karke test kar rahe hain taaki .env ka chakkar khatam ho
     const appId = process.env.CASHFREE_APP_ID;
-
-    const secretKey = 
-    process.env.CASHFREE_SECRET_KEY;
+    const secretKey = process.env.CASHFREE_SECRET_KEY;
 
     const orderId = "order_" + Date.now();
 
@@ -25,11 +23,11 @@ export async function POST(req) {
         order_currency: "INR",
         order_id: orderId,
         customer_details: {
-       customer_id: email ? email.replace(/[^a-zA-Z0-9_]/g, "_") : "user_student_1",
+          customer_id: email ? email.replace(/[^a-zA-Z0-9_]/g, "_") : "user_student_1",
           customer_phone: "9999999999",
         },
         order_meta: {
-          return_url: `http://battle-crown.vercel.app/dashboard?order_id=${orderId}`,
+          return_url: `https://battle-crown.vercel.app/dashboard?order_id=${orderId}`,
         },
       }),
     });
@@ -44,10 +42,12 @@ export async function POST(req) {
       });
     } else {
       console.error("Cashfree API Error Response:", data);
+      await logCortexError("wallet/deposit", new Error(data.message || "Order creation failed"));
       return NextResponse.json({ success: false, message: data.message || "Order creation failed" }, { status: 500 });
     }
   } catch (error) {
     console.error("Server Error:", error);
+    await logCortexError("wallet/deposit", error);
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
 }
