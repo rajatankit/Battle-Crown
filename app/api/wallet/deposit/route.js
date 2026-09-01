@@ -29,7 +29,7 @@ export async function POST(req) {
           customer_phone: "9999999999",
         },
         order_meta: {
-          return_url: `http://localhost:3000/dashboard?order_id=${orderId}`,
+          return_url: `http://battle-crown.vercel.app/dashboard?order_id=${orderId}`,
         },
       }),
     });
