@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../lib/prisma";
-import { messaging } from "../../../lib/firebase-admin";
+import { prisma } from "../../../../lib/prisma";
+import { messaging } from "../../../../lib/firebase-admin";
 
 const OWNER_UID = process.env.PERSONAL_ASSISTANT_OWNER_UID || "";
 const CRON_SECRET = process.env.CORTEX_CRON_SECRET || "";
