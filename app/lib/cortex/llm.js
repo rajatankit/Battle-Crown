@@ -284,3 +284,53 @@ export async function askCortexLLM(userText) {
     "No LLM key configured. Set CORTEX_GROQ_API_KEY or CORTEX_GEMINI_API_KEY."
   );
 }
+
+// --- Added for Cortex Monitor (news relevance classification) ---
+// Standalone raw-prompt function — does NOT touch existing SWITCH/TOOL logic.
+export async function askCortexRaw(prompt) {
+  if (GROQ_API_KEY) {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "openai/gpt-oss-20b",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.3,
+        max_tokens: 500,
+      }),
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Groq error ${response.status}: ${errText.slice(0, 200)}`);
+    }
+    const data = await response.json();
+    return data?.choices?.[0]?.message?.content?.trim() || "";
+  }
+
+  if (GEMINI_API_KEY) {
+    const url = new URL(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
+    );
+    url.searchParams.set("key", GEMINI_API_KEY);
+
+    const response = await fetch(url.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.3, maxOutputTokens: 500 },
+      }),
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Gemini error ${response.status}: ${errText.slice(0, 200)}`);
+    }
+    const data = await response.json();
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+  }
+
+  throw new Error("No LLM key configured.");
+}
