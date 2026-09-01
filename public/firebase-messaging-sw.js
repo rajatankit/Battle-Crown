@@ -4,14 +4,13 @@ importScripts('https://www.gstatic.com/firebasejs/12.0.0/firebase-messaging-comp
 // NOTE: Service workers cannot read .env variables at runtime — these values
 // must be hardcoded here. This is safe: Firebase's client-side config
 // (apiKey, projectId, etc.) is meant to be public and is NOT a secret.
-// Copy these exact values from your lib/firebase.js file.
 firebase.initializeApp({
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_AUTH_DOMAIN",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_STORAGE_BUCKET",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID",
+  apiKey: "AIzaSyAEWtDLJ1pZfqmMStyK5QjRmGOYrDob3Do",
+  authDomain: "battle-crown-official.firebaseapp.com",
+  projectId: "battle-crown-official",
+  storageBucket: "battle-crown-official.firebasestorage.app",
+  messagingSenderId: "884967460942",
+  appId: "1:884967460942:web:4458bd8af5927f4f2d331f",
 });
 
 const messaging = firebase.messaging();
