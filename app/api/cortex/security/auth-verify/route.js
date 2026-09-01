@@ -38,17 +38,17 @@ export async function POST(request) {
 
   let verification;
   try {
-    verification = await verifyAuthenticationResponse({
-      response: body,
-      expectedChallenge: security.webauthnChallenge,
-      expectedOrigin: ORIGIN,
-      expectedRPID: RP_ID,
-      authenticator: {
-        credentialID: Buffer.from(security.webauthnCredId, "base64url"),
-        credentialPublicKey: Buffer.from(security.webauthnPublicKey, "base64url"),
-        counter: security.webauthnCounter,
-      },
-    });
+   verification = await verifyAuthenticationResponse({
+  response: body,
+  expectedChallenge: security.webauthnChallenge,
+  expectedOrigin: ORIGIN,
+  expectedRPID: RP_ID,
+  credential: {
+    id: security.webauthnCredId,
+    publicKey: Buffer.from(security.webauthnPublicKey, "base64url"),
+    counter: security.webauthnCounter,
+  },
+});
   } catch (err) {
     return NextResponse.json(
       { success: false, error: err instanceof Error ? err.message : "Verification failed." },
