@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { startAuthentication } from "@simplewebauthn/browser";
 import PatternLock from "./PatternLock";
 
@@ -32,6 +32,13 @@ export default function VerificationModal({
   const [busy, setBusy] = useState(false);
   const [finishing, setFinishing] = useState(false);
 
+  // Guards against finish() (the /approve call) ever firing more than
+  // once for this modal instance — e.g. a double-tap on "Tap to
+  // Verify" landing before the button re-renders as disabled. A ref
+  // is used (not state) because it must block the second call
+  // synchronously, before React has a chance to re-render.
+  const approvedRef = useRef(false);
+
   const authHeaders = useCallback(() => {
     const h = { "Content-Type": "application/json" };
     if (authToken) h.Authorization = `Bearer ${authToken}`;
@@ -39,6 +46,9 @@ export default function VerificationModal({
   }, [authToken]);
 
   const finish = useCallback(async () => {
+    if (approvedRef.current) return;
+    approvedRef.current = true;
+
     setFinishing(true);
     try {
       // Step 1: approve the actual pending action on the backend
@@ -95,6 +105,10 @@ export default function VerificationModal({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Approval failed.");
       setFinishing(false);
+      // Allow a retry after a genuine failure (network error, backend
+      // rejected it, etc.) — only successful completion should stay
+      // permanently locked.
+      approvedRef.current = false;
     }
   }, [requestId, agentId, remainingSteps, onSuccess, authHeaders]);
 
@@ -109,6 +123,7 @@ export default function VerificationModal({
   }, [steps.length, finish]);
 
   const runBiometricStep = useCallback(async () => {
+    if (busy || finishing || approvedRef.current) return;
     setBusy(true);
     setError("");
     try {
@@ -139,10 +154,11 @@ export default function VerificationModal({
     } finally {
       setBusy(false);
     }
-  }, [advance, authHeaders]);
+  }, [busy, finishing, advance, authHeaders]);
 
   const runPatternStep = useCallback(
     async (patternString) => {
+      if (busy || finishing || approvedRef.current) return;
       setBusy(true);
       setError("");
       try {
@@ -164,7 +180,7 @@ export default function VerificationModal({
         setBusy(false);
       }
     },
-    [advance, authHeaders]
+    [busy, finishing, advance, authHeaders]
   );
 
   const currentStep = steps[stepIndex];
@@ -200,7 +216,7 @@ export default function VerificationModal({
               Boss, apna fingerprint ya face verify karo.
             </p>
             <button
-              disabled={busy}
+              disabled={busy || finishing}
               onClick={runBiometricStep}
               className="rounded-full px-6 py-3 disabled:opacity-50"
               style={{
