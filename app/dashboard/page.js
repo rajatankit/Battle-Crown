@@ -64,7 +64,7 @@ export default function DashboardPage() {
     setTournaments(list);
 
     // 👇 NEW — Postgres ki tournaments table ko Firestore ke saath sync rakhta hai
-    fetch("/api/tournament/sync", {
+    fetch("/api/tournaments/sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tournaments: list }),
