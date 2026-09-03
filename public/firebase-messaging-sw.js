@@ -18,11 +18,15 @@ const messaging = firebase.messaging();
 messaging.onBackgroundMessage(function (payload) {
   const title = payload.notification?.title || payload.data?.title || "Notification";
   const body = payload.notification?.body || payload.data?.body || "";
+  const isHigh = payload.data?.severity === "high";
 
   self.registration.showNotification(title, {
     body,
     icon: "/icon-192.png",
     data: payload.fcmOptions?.link || payload.data?.link || "/dashboard",
+    requireInteraction: isHigh, // High alert tab tak screen pe rahega jab tak tap na kare
+    vibrate: isHigh ? [300, 100, 300, 100, 300] : [200],
+    tag: payload.data?.alertId || undefined, // Same alert ka notification stack ho, spam na lage
   });
 });
 

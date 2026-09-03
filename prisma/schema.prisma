@@ -218,16 +218,6 @@ model CortexSecurity {
   updatedAt         DateTime @updatedAt
 }
 
-model Alert {
-  id          Int      @id @default(autoincrement())
-  type        String   // "deposit" | "withdrawal" | "new_user" | "tournament" | "error" | "news"
-  severity    String   // "low" | "medium" | "high"
-  title       String
-  message     String
-  refId       String?  // related record ka id (jaise userId, tournamentId)
-  notified    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-}
 
 model MonitorState {
   id            Int      @id @default(1)
@@ -241,4 +231,17 @@ model ErrorLog {
   stack     String?
   createdAt DateTime @default(now())
   alerted   Boolean  @default(false)
+}
+
+model Alert {
+  id           Int      @id @default(autoincrement())
+  type         String
+  severity     String
+  title        String
+  message      String
+  refId        String?
+  notified     Boolean  @default(false)
+  acknowledged Boolean  @default(false)
+  escalations  Int      @default(0)
+  createdAt    DateTime @default(now())
 }

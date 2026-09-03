@@ -44,6 +44,23 @@ export default function PersonalAssistantPage() {
   }, [phase]);
 
   // --------------------------------------------------
+// ACKNOWLEDGE PENDING HIGH ALERTS (stops escalation pings)
+// --------------------------------------------------
+
+useEffect(() => {
+  if (!state.ownerVerified || !idTokenRef.current) return;
+
+  fetch("/api/cortex/alerts/acknowledge", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${idTokenRef.current}`,
+    },
+  }).catch((err) => {
+    console.error("Alert acknowledge failed:", err);
+  });
+}, [state.ownerVerified]);
+
+  // --------------------------------------------------
   // 60 SECOND CINEMATIC ACTIVATION
   // --------------------------------------------------
 
