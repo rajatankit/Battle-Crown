@@ -13,7 +13,7 @@ const globalForPrisma = globalThis;
 const prisma = globalForPrisma.prisma || new PrismaClient();
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
-// POST /api/tournament/sync
+// POST /api/tournaments/sync
 // Body: { tournaments: [ { id, title, game, map, mode, entryFee, maxSlots,
 //                           joinedCount, status, firstPrize, secondPrize,
 //                           thirdPrize, killReward, roomId, roomPassword,
