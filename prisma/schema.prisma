@@ -233,3 +233,12 @@ model MonitorState {
   id            Int      @id @default(1)
   lastCheckedAt DateTime @default(now())
 }
+
+model ErrorLog {
+  id        Int      @id @default(autoincrement())
+  route     String
+  message   String
+  stack     String?
+  createdAt DateTime @default(now())
+  alerted   Boolean  @default(false)
+}
