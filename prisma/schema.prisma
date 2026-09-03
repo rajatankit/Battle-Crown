@@ -245,3 +245,9 @@ model Alert {
   escalations  Int      @default(0)
   createdAt    DateTime @default(now())
 }
+
+model CortexMemory {
+  id        Int      @id @default(autoincrement())
+  fact      String
+  createdAt DateTime @default(now())
+}

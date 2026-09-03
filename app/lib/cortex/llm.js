@@ -1,14 +1,24 @@
+import { getMemories } from "./memory";
+
 const GROQ_API_KEY = (process.env.CORTEX_GROQ_API_KEY || "").trim();
 const GEMINI_API_KEY = (process.env.CORTEX_GEMINI_API_KEY || "").trim();
 
-const SYSTEM_PROMPT = `You are CORTEX, advanced AI for Battle Crown esports.
+function buildSystemPrompt(memories) {
+  const memorySection =
+    memories && memories.length > 0
+      ? `\nTHINGS YOU PERMANENTLY REMEMBER ABOUT BOSS / THE BUSINESS:\n${memories
+          .map((m) => `- ${m}`)
+          .join("\n")}\n`
+      : "";
+
+  return `You are CORTEX, advanced AI for Battle Crown esports.
 
 Personality:
 - Address the user as "Boss"
 - Respectful, calm, complete sentences (never 1-2 words only)
 - Short: 1-2 full sentences max
 - Hinglish is fine
-
+${memorySection}
 You manage 8 specialist employees:
 ARIA (tournaments), ELARA (players), LYRA (notifications), VAULT (rooms),
 ORION (matches), NOVA (wallet/finance), ATLAS (code), SENTINEL (security).
@@ -56,6 +66,17 @@ SENTINEL:read_security_logs
 
 3) Normal chat -> reply with only the spoken answer. No labels, no JSON.
 
+4) MEMORY — if Boss explicitly asks you to remember something ("yaad rakho ki...",
+"remember that...", "isse yaad rakh"), OR if something said is clearly an important
+permanent fact/rule/preference worth remembering long-term (a threshold, a policy,
+a recurring instruction, an important date) — add ONE extra line at the very end
+of your response (after the SWITCH/TOOL/chat content) in this exact format:
+MEMORY: <the fact, written as a short standalone sentence>
+
+Do NOT add a MEMORY line for routine/one-off requests (like "create a tournament"
+or "check wallet balance") — only for things genuinely worth remembering forever.
+Never invent a memory the user didn't state or clearly imply.
+
 Examples:
 User: nova se baat karwa
 SWITCH: NOVA
@@ -85,9 +106,18 @@ User: is user ko warn karo aur uska withdrawal hold karo
 TOOL: LYRA:send_notification
 TOOL: NOVA:report_suspicious_transaction
 
+User: yaad rakho ki 10000 se upar ka withdrawal hamesha manually check karna hai
+Theek hai Boss, ye main hamesha yaad rakhunga.
+MEMORY: 10000 se upar ka withdrawal hamesha manually check karna hai
+
+User: mera birthday 15 november ko hai, yaad rakhna
+Zaroor Boss, note kar liya.
+MEMORY: Boss ka birthday 15 November ko hai
+
 User: kaise ho
 I am fully operational, Boss. How may I assist you?
 `;
+}
 
 const AGENTS = [
   "ARIA",
@@ -127,10 +157,36 @@ const VALID_TOOL_PAIRS = new Set([
 
 const MAX_STEPS_PER_COMMAND = 5;
 
+// Pulls out any "MEMORY: <fact>" lines from the raw text (can appear
+// anywhere, usually at the end) and returns the remaining text plus
+// the extracted facts, so the rest of parsing is unaffected.
+function extractMemoryLines(text) {
+  const lines = String(text || "").split("\n");
+  const memoryFacts = [];
+  const remaining = [];
+
+  const memoryRegex = /^MEMORY\s*:\s*(.+)$/i;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const m = trimmed.match(memoryRegex);
+    if (m && m[1].trim()) {
+      memoryFacts.push(m[1].trim().slice(0, 500));
+    } else {
+      remaining.push(line);
+    }
+  }
+
+  return { text: remaining.join("\n").trim(), memoryFacts };
+}
+
 function parseLLMOutput(raw) {
   let text = String(raw || "")
     .replace(/```/g, "")
     .trim();
+
+  const { text: withoutMemory, memoryFacts } = extractMemoryLines(text);
+  text = withoutMemory;
 
   // SWITCH: NOVA
   const switchMatch = text.match(
@@ -140,6 +196,7 @@ function parseLLMOutput(raw) {
     return {
       type: "switch",
       agent_id: switchMatch[1].toUpperCase(),
+      memoryFacts,
     };
   }
 
@@ -170,20 +227,22 @@ function parseLLMOutput(raw) {
     }
 
     if (steps.length === 1) {
-      // Same shape as before — nothing downstream breaks.
-      return { type: "tool", agent_id: steps[0].agent_id, action: steps[0].action };
+      return {
+        type: "tool",
+        agent_id: steps[0].agent_id,
+        action: steps[0].action,
+        memoryFacts,
+      };
     }
 
-    return { type: "tool_multi", steps };
+    return { type: "tool_multi", steps, memoryFacts };
   }
 
   if (sawUnknownTool) {
-    // Model returned only agent/action pairs that aren't in our
-    // known list. Fall through to chat instead of dispatching
-    // something the backend will reject anyway.
     return {
       type: "chat",
       message: "Boss, yeh command abhi supported nahi hai.",
+      memoryFacts,
     };
   }
 
@@ -197,7 +256,7 @@ function parseLLMOutput(raw) {
       lower === `talk to ${a}` ||
       lower === `${a} se baat`
     ) {
-      return { type: "switch", agent_id: agent };
+      return { type: "switch", agent_id: agent, memoryFacts };
     }
   }
 
@@ -211,10 +270,11 @@ function parseLLMOutput(raw) {
   return {
     type: "chat",
     message: message.slice(0, 220),
+    memoryFacts,
   };
 }
 
-async function askGroq(userText) {
+async function askGroq(userText, systemPrompt) {
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -224,11 +284,11 @@ async function askGroq(userText) {
     body: JSON.stringify({
       model: "openai/gpt-oss-20b",
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: systemPrompt },
         { role: "user", content: userText },
       ],
       temperature: 0.6,
-      max_tokens: 150,
+      max_tokens: 200,
     }),
   });
 
@@ -239,6 +299,7 @@ async function askGroq(userText) {
         type: "chat",
         message:
           "Boss, language core is cooling down. Please try again in a minute.",
+        memoryFacts: [],
       };
     }
     throw new Error(`Groq error ${response.status}: ${errText.slice(0, 200)}`);
@@ -249,7 +310,7 @@ async function askGroq(userText) {
   return parseLLMOutput(raw);
 }
 
-async function askGemini(userText) {
+async function askGemini(userText, systemPrompt) {
   const url = new URL(
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
   );
@@ -262,12 +323,12 @@ async function askGemini(userText) {
       contents: [
         {
           role: "user",
-          parts: [{ text: `${SYSTEM_PROMPT}\n\nUser: ${userText}\nCORTEX:` }],
+          parts: [{ text: `${systemPrompt}\n\nUser: ${userText}\nCORTEX:` }],
         },
       ],
       generationConfig: {
         temperature: 0.6,
-        maxOutputTokens: 150,
+        maxOutputTokens: 200,
       },
     }),
   });
@@ -279,6 +340,7 @@ async function askGemini(userText) {
         type: "chat",
         message:
           "Boss, language core is cooling down. Please try again in a minute.",
+        memoryFacts: [],
       };
     }
     throw new Error(`Gemini error ${response.status}: ${errText.slice(0, 200)}`);
@@ -291,20 +353,29 @@ async function askGemini(userText) {
 }
 
 export async function askCortexLLM(userText) {
+  let memories = [];
+  try {
+    memories = await getMemories();
+  } catch (err) {
+    console.error("Failed to load Cortex memories:", err);
+  }
+
+  const systemPrompt = buildSystemPrompt(memories);
+
   // Prefer Groq, fallback Gemini
   if (GROQ_API_KEY) {
     try {
-      return await askGroq(userText);
+      return await askGroq(userText, systemPrompt);
     } catch (err) {
       if (GEMINI_API_KEY) {
-        return await askGemini(userText);
+        return await askGemini(userText, systemPrompt);
       }
       throw err;
     }
   }
 
   if (GEMINI_API_KEY) {
-    return await askGemini(userText);
+    return await askGemini(userText, systemPrompt);
   }
 
   throw new Error(

@@ -2,6 +2,7 @@
 import { requirePersonalOwner } from "../../../lib/personal-owner";
 import { cortexDispatch } from "../../../lib/cortex/client";
 import { askCortexLLM } from "../../../lib/cortex/llm";
+import { saveMemory } from "../../../lib/cortex/memory";
 import { logCortexError } from "../../../lib/cortex/errorLogger";
 
 // Runs a single dispatch step and figures out whether it needs approval.
@@ -23,10 +24,6 @@ async function runStep({ step, command, uid, approved, approvalMethod, riskHint 
 
   const msg = String(result?.message || result?.detail || "");
 
-  // Backend sends "VERIFICATION_REQUIRED:<level>:<requestId>" as the
-  // message itself when approval is needed — catch that exact format
-  // instead of relying on the word "approve" being present somewhere
-  // in the text (which this format does not contain).
   const verificationMatch = msg.match(/^VERIFICATION_REQUIRED:([a-zA-Z+]+):(.+)$/i);
 
   const needsApprove =
@@ -59,9 +56,6 @@ export async function POST(request) {
     typeof body?.approval_method === "string" ? body.approval_method : null;
   const riskHint = typeof body?.risk === "string" ? body.risk : null;
 
-  // If the client is resuming a paused multi-step chain, it sends back the
-  // exact steps we returned earlier instead of free text. When present, we
-  // skip the LLM entirely and go straight into the chain runner below.
   const resumingSteps = Array.isArray(body?.remaining_steps)
     ? body.remaining_steps.filter(
         (s) => s && typeof s.agent_id === "string" && typeof s.action === "string"
@@ -82,6 +76,17 @@ export async function POST(request) {
       steps = resumingSteps;
     } else {
       const llm = await askCortexLLM(command);
+
+      // Save any facts CORTEX decided are worth remembering permanently.
+      if (Array.isArray(llm.memoryFacts) && llm.memoryFacts.length > 0) {
+        for (const fact of llm.memoryFacts) {
+          try {
+            await saveMemory(fact);
+          } catch (err) {
+            console.error("Failed to save Cortex memory:", err);
+          }
+        }
+      }
 
       // ============================================
       // 1) SPECIALIST SWITCH (all 8) — NO tool call
@@ -127,12 +132,6 @@ export async function POST(request) {
 
     // ============================================
     // 4) SEQUENTIAL CHAIN RUNNER
-    //
-    // Runs steps in order. Low-risk steps execute immediately.
-    // The moment a step needs approval, we stop right there —
-    // everything already run stays done (no rollback), and
-    // everything not yet run is handed back to the client as
-    // remaining_steps so it can resume after approval.
     // ============================================
     const completed = [];
 
@@ -149,9 +148,6 @@ export async function POST(request) {
       });
 
       if (needsApprove && !approved) {
-        // Prefer the level/requestId embedded in the backend's own
-        // VERIFICATION_REQUIRED message; fall back to structured
-        // fields or a risk-based guess if that format isn't present.
         const level = verificationMatch
           ? verificationMatch[1].toLowerCase()
           : msg.toLowerCase().includes("high")
@@ -180,10 +176,7 @@ export async function POST(request) {
               risk === "high"
                 ? "High risk action. Tap approve to confirm, Boss."
                 : "This needs your approval, Boss. Tap approve to confirm.",
-            // Steps already executed before this one (for audit / UI display).
             completed_steps: completed,
-            // Steps from this point onward (this one included) — send these
-            // back unchanged once approved to resume the chain.
             remaining_steps: steps.slice(i),
           },
         });
@@ -221,8 +214,6 @@ export async function POST(request) {
       });
     }
 
-    // Build one combined message. Single-step stays exactly as before;
-    // multi-step summarizes each completed action on its own line.
     let combinedMessage;
     if (completed.length === 1) {
       combinedMessage = completed[0].message;
