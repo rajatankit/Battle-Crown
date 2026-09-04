@@ -38,7 +38,9 @@ export function isTournamentCreateIntent(text) {
   const t = String(text || "").toLowerCase();
   const hasTournamentWord = /tournament/.test(t);
   const hasCreateWord =
-    /banao|bana do|bana de|banaye|create|new|naya|shuru kar/.test(t);
+    /\bbana+\s*(do|de|ye|o)?\b|\bbnao\b|\bbanwao\b|create|\bnew\b|\bnaya\b|shuru kar/.test(
+      t
+    );
   return hasTournamentWord && hasCreateWord;
 }
 
