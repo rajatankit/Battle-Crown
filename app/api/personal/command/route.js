@@ -4,10 +4,175 @@ import { cortexDispatch } from "../../../lib/cortex/client";
 import { askCortexLLM } from "../../../lib/cortex/llm";
 import { saveMemory } from "../../../lib/cortex/memory";
 import { logCortexError } from "../../../lib/cortex/errorLogger";
+import { prisma } from "../../../lib/prisma";
+import {
+  getDraft,
+  startDraft,
+  updateDraft,
+  resetDraft,
+  nextMissingField,
+  getFieldQuestion,
+  parseFieldValue,
+  buildSummary,
+  isTournamentCreateIntent,
+  isAffirmative,
+  isNegative,
+  isCancelWord,
+} from "../../../lib/cortex/tournamentWizard";
 
-// Runs a single dispatch step and figures out whether it needs approval.
-// Shared by both the single-tool path and the multi-step chain below so the
-// approval logic (message parsing, risk detection) stays in exactly one place.
+function chatResponse(message, agent = "CORTEX") {
+  return NextResponse.json({
+    success: true,
+    result: { success: true, agent, message },
+  });
+}
+
+// ============================================
+// TOURNAMENT WIZARD HANDLERS
+// ============================================
+
+async function handleWizardStart() {
+  await startDraft();
+  return chatResponse(getFieldQuestion("title"), "ARIA");
+}
+
+async function handleWizardTurn(draft, command, uid) {
+  if (isCancelWord(command)) {
+    await resetDraft();
+    return chatResponse("Tournament creation cancel kar diya, Boss.", "ARIA");
+  }
+
+  // ---- Stage: duplicate confirmation ----
+  if (draft.stage === "duplicate_confirm") {
+    if (isNegative(command)) {
+      await resetDraft();
+      return chatResponse(
+        "Theek hai Boss, tournament nahi banaya. Alag time try kariye.",
+        "ARIA"
+      );
+    }
+    if (isAffirmative(command)) {
+      await updateDraft({ stage: "final_confirm" });
+      return chatResponse(
+        `Confirm kar rahe hain — ${buildSummary(draft)}. Sab sahi hai? Bolo "haan" tournament banane ke liye.`,
+        "ARIA"
+      );
+    }
+    return chatResponse(
+      'Boss, "haan" ya "nahi" mein jawab dijiye — same time pe same game ka tournament already hai, phir bhi banana hai?',
+      "ARIA"
+    );
+  }
+
+  // ---- Stage: final confirmation ----
+  if (draft.stage === "final_confirm") {
+    if (isNegative(command)) {
+      await resetDraft();
+      return chatResponse("Theek hai Boss, tournament creation cancel kiya.", "ARIA");
+    }
+    if (!isAffirmative(command)) {
+      return chatResponse(
+        `Boss, confirm kijiye — ${buildSummary(draft)}. Bolo "haan" ya "cancel".`,
+        "ARIA"
+      );
+    }
+
+    // Create the actual tournament via the existing bridge action.
+    try {
+      const result = await cortexDispatch({
+        agentId: "ARIA",
+        action: "create_tournament",
+        task: "create_tournament_wizard",
+        context: {
+          source: "personal_voice",
+          uid,
+          title: draft.title,
+          game: draft.game,
+          mode: draft.mode,
+          entry_fee: draft.entryFee,
+          capacity: draft.maxSlots,
+          start_time: draft.startTime,
+          kill_reward: draft.killReward,
+          first_prize: draft.firstPrize,
+          second_prize: draft.secondPrize,
+          third_prize: draft.thirdPrize,
+        },
+      });
+
+      await resetDraft();
+
+      if (result?.status === "created" || result?.success) {
+        return chatResponse(
+          `Tournament ban gaya, Boss — "${draft.title}" live ho gaya.`,
+          "ARIA"
+        );
+      }
+
+      return chatResponse(
+        `Boss, tournament banane mein dikkat aayi: ${result?.message || "unknown error"}.`,
+        "ARIA"
+      );
+    } catch (err) {
+      await resetDraft();
+      await logCortexError("personal/command:tournament_wizard", err);
+      return chatResponse(
+        "Boss, tournament create karte waqt error aaya. Dobara try kariye.",
+        "ARIA"
+      );
+    }
+  }
+
+  // ---- Stage: collecting fields ----
+  const field = nextMissingField(draft);
+  if (!field) {
+    // All fields filled already — shouldn't normally happen, move to duplicate check.
+    return runDuplicateCheck(draft);
+  }
+
+  const parsed = parseFieldValue(field, command);
+  if (!parsed.ok) {
+    return chatResponse(parsed.message, "ARIA");
+  }
+
+  const updated = await updateDraft({ [field]: parsed.value });
+  const next = nextMissingField(updated);
+
+  if (next) {
+    return chatResponse(getFieldQuestion(next), "ARIA");
+  }
+
+  // All fields collected — run duplicate check.
+  return runDuplicateCheck(updated);
+}
+
+async function runDuplicateCheck(draft) {
+  const existing = await prisma.tournament.findFirst({
+    where: {
+      game: draft.game,
+      startTime: draft.startTime,
+      status: { in: ["upcoming", "live"] },
+    },
+  });
+
+  if (existing) {
+    await updateDraft({ stage: "duplicate_confirm", duplicateTournamentId: existing.id });
+    return chatResponse(
+      `Boss, isi time pe already ek ${draft.game} tournament hai — "${existing.title}". Phir bhi banana hai?`,
+      "ARIA"
+    );
+  }
+
+  await updateDraft({ stage: "final_confirm" });
+  return chatResponse(
+    `Confirm kar rahe hain — ${buildSummary(draft)}. Sab sahi hai? Bolo "haan" tournament banane ke liye.`,
+    "ARIA"
+  );
+}
+
+// ============================================
+// SINGLE-STEP DISPATCH (unchanged from before)
+// ============================================
+
 async function runStep({ step, command, uid, approved, approvalMethod, riskHint }) {
   const result = await cortexDispatch({
     agentId: step.agent_id,
@@ -23,7 +188,6 @@ async function runStep({ step, command, uid, approved, approvalMethod, riskHint 
   });
 
   const msg = String(result?.message || result?.detail || "");
-
   const verificationMatch = msg.match(/^VERIFICATION_REQUIRED:([a-zA-Z+]+):(.+)$/i);
 
   const needsApprove =
@@ -70,6 +234,21 @@ export async function POST(request) {
   }
 
   try {
+    // ============================================
+    // 0) TOURNAMENT CREATION WIZARD
+    // ============================================
+    if (!resumingSteps) {
+      const draft = await getDraft();
+
+      if (draft && draft.active) {
+        return await handleWizardTurn(draft, command, uid);
+      }
+
+      if (command && isTournamentCreateIntent(command)) {
+        return await handleWizardStart();
+      }
+    }
+
     let steps;
 
     if (resumingSteps && resumingSteps.length > 0) {
@@ -77,7 +256,6 @@ export async function POST(request) {
     } else {
       const llm = await askCortexLLM(command);
 
-      // Save any facts CORTEX decided are worth remembering permanently.
       if (Array.isArray(llm.memoryFacts) && llm.memoryFacts.length > 0) {
         for (const fact of llm.memoryFacts) {
           try {
@@ -88,9 +266,6 @@ export async function POST(request) {
         }
       }
 
-      // ============================================
-      // 1) SPECIALIST SWITCH (all 8) — NO tool call
-      // ============================================
       if (llm.type === "switch") {
         return NextResponse.json({
           success: true,
@@ -103,9 +278,6 @@ export async function POST(request) {
         });
       }
 
-      // ============================================
-      // 2) NORMAL CHAT
-      // ============================================
       if (llm.type === "chat") {
         return NextResponse.json({
           success: true,
@@ -117,10 +289,6 @@ export async function POST(request) {
         });
       }
 
-      // ============================================
-      // 3) SINGLE TOOL / WORK — same shape as the
-      // original single-step behavior
-      // ============================================
       if (llm.type === "tool") {
         steps = [{ agent_id: llm.agent_id, action: llm.action }];
       } else if (llm.type === "tool_multi") {
@@ -130,9 +298,6 @@ export async function POST(request) {
       }
     }
 
-    // ============================================
-    // 4) SEQUENTIAL CHAIN RUNNER
-    // ============================================
     const completed = [];
 
     for (let i = 0; i < steps.length; i++) {

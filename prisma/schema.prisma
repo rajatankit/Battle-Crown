@@ -251,3 +251,21 @@ model CortexMemory {
   fact      String
   createdAt DateTime @default(now())
 }
+
+model TournamentDraft {
+  id                     Int       @id @default(1)
+  active                 Boolean   @default(false)
+  stage                  String    @default("collecting") // collecting | duplicate_confirm | final_confirm
+  title                  String?
+  game                   String?
+  mode                   String?
+  entryFee               String?
+  maxSlots               Int?
+  startTime              DateTime?
+  killReward             Float?
+  firstPrize             Float?
+  secondPrize            Float?
+  thirdPrize             Float?
+  duplicateTournamentId  Int?
+  updatedAt              DateTime  @updatedAt
+}
