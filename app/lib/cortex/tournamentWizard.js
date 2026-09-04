@@ -209,8 +209,11 @@ export function parseFieldValue(field, rawText) {
       return parseGame(rawText);
     case "mode":
       return parseMode(rawText);
-    case "entryFee":
-      return parseNumber(rawText, "Entry fee");
+    case "entryFee": {
+      const parsed = parseNumber(rawText, "Entry fee");
+      if (!parsed.ok) return parsed;
+      return { ok: true, value: String(parsed.value) };
+    }
     case "maxSlots":
       return parseInteger(rawText, "Max slots");
     case "startTime":
