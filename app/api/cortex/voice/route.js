@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
-const VOICE_ID = "4Qx4vCxHVzxrI7UmVD7A"; // Tripti
+const VOICE_ID = "cgSgspJ2msm6clMCkdW9"; // Jessica (free tier compatible)
 
 export async function POST(request) {
   try {
