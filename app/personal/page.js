@@ -351,94 +351,124 @@ useEffect(() => {
   // --------------------------------------------------
 
   async function sendCommand(commandText) {
-    if (!idTokenRef.current || !commandText?.trim()) return;
+  if (!idTokenRef.current || !commandText?.trim()) return;
 
-    const text = commandText.trim().toLowerCase();
+  const text = commandText.trim().toLowerCase();
 
-    if (!unlockedRef.current) {
-      if (
-        text.includes("cortex unlock") ||
-        text.includes("cortex, unlock")
-      ) {
-        unlockedRef.current = true;
-        setUnlocked(true);
-        setPhase(0);
-        setReply("Activation sequence initiated.");
-        return;
-      }
-
-      setReply("Access denied. Say: cortex unlock");
-      speak("Access denied. Say cortex unlock");
-      return;
-    }
-
-    if (phaseRef.current < 6) {
-      setReply("Activation in progress. Stand by, Boss.");
-      return;
-    }
-
-    if (text.includes("cortex lock") || text.includes("cortex, lock")) {
-      unlockedRef.current = false;
-      setUnlocked(false);
+  if (!unlockedRef.current) {
+    if (
+      text.includes("cortex unlock") ||
+      text.includes("cortex, unlock")
+    ) {
+      unlockedRef.current = true;
+      setUnlocked(true);
       setPhase(0);
-      setReply("Systems locked.");
-      speak("Systems locked.");
+      setReply("Activation sequence initiated.");
       return;
     }
 
-    setBusy(true);
+    setReply("Access denied. Say: cortex unlock");
+    speak("Access denied. Say cortex unlock");
+    return;
+  }
 
-    try {
-      const response = await fetch("/api/personal/command", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${idTokenRef.current}`,
-        },
-        body: JSON.stringify({ command: commandText }),
-      });
+  if (phaseRef.current < 6) {
+    setReply("Activation in progress. Stand by, Boss.");
+    return;
+  }
 
-      const payload = await response.json();
+  if (text.includes("cortex lock") || text.includes("cortex, lock")) {
+    unlockedRef.current = false;
+    setUnlocked(false);
+    setPhase(0);
+    setReply("Systems locked.");
+    speak("Systems locked.");
+    return;
+  }
 
-      if (!payload.success) {
-        const approval = extractApprovalRequest(payload);
-        if (approval) {
-          setReply(
-            approval.requiredVerification === "fingerprint+face"
-              ? "High risk. Biometric + pattern verification required, Boss."
-              : "Verification required, Boss."
-          );
-          speak(
-            approval.requiredVerification === "fingerprint+face"
-              ? "High risk command. Identity verification required."
-              : "Identity verification required."
-          );
-          setVerification(approval);
-          return;
-        }
+  setBusy(true);
 
-        setReply(`Error: ${payload.error || "Command failed."}`);
-        speak("Command failed, Boss.");
+  try {
+    const response = await fetch("/api/personal/command", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idTokenRef.current}`,
+      },
+      body: JSON.stringify({ command: commandText }),
+    });
+
+    const payload = await response.json();
+
+    // ---------- NEW: Always check for verification first ----------
+    const approval = extractApprovalRequest(payload);
+
+    // Also check legacy text even if success is true
+    if (!approval) {
+      const spokenMsg =
+        payload?.result?.message ||
+        payload?.result?.data?.message ||
+        payload?.message ||
+        "";
+      const legacy = parseVerificationRequired(spokenMsg);
+      if (legacy) {
+        setReply(
+          legacy.requiredVerification === "fingerprint+face"
+            ? "High risk. Biometric + pattern verification required, Boss."
+            : "Verification required, Boss."
+        );
+        speak(
+          legacy.requiredVerification === "fingerprint+face"
+            ? "High risk command. Identity verification required."
+            : "Identity verification required."
+        );
+        setVerification({
+          requiredVerification: legacy.requiredVerification,
+          requestId: legacy.requestId,
+          agentId: "cortex",
+          remainingSteps: null,
+        });
         return;
       }
-
-      const spoken =
-        payload.result?.message ||
-        payload.result?.data?.message ||
-        payload.message ||
-        "Done, Boss.";
-
-      const clean = String(spoken).trim();
-
-      setReply(clean);
-      speak(clean);
-    } catch (error) {
-      setReply(`Error: ${error?.message || "Something went wrong."}`);
-      speak("Something went wrong, Boss.");
-    } finally {
-      setBusy(false);
     }
+
+    if (approval) {
+      setReply(
+        approval.requiredVerification === "fingerprint+face"
+          ? "High risk. Biometric + pattern verification required, Boss."
+          : "Verification required, Boss."
+      );
+      speak(
+        approval.requiredVerification === "fingerprint+face"
+          ? "High risk command. Identity verification required."
+          : "Identity verification required."
+      );
+      setVerification(approval);
+      return;
+    }
+
+    if (!payload.success) {
+      setReply(`Error: ${payload.error || "Command failed."}`);
+      speak("Command failed, Boss.");
+      return;
+    }
+
+    const spoken =
+      payload.result?.message ||
+      payload.result?.data?.message ||
+      payload.message ||
+      "Done, Boss.";
+
+    const clean = String(spoken).trim();
+    setReply(clean);
+    speak(clean);
+  } catch (error) {
+    setReply(`Error: ${error?.message || "Something went wrong."}`);
+    speak("Something went wrong, Boss.");
+  } finally {
+    setBusy(false);
   }
+}
 
   // --------------------------------------------------
   // VERIFICATION HANDLERS
