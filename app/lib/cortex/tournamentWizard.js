@@ -34,6 +34,10 @@ export function getFieldQuestion(field) {
 // INTENT DETECTION
 // --------------------------------------------------
 
+// --------------------------------------------------
+// INTENT DETECTION (Flexible)
+// --------------------------------------------------
+
 export function isTournamentCreateIntent(text) {
   const t = String(text || "").toLowerCase();
   const hasTournamentWord = /tournament/.test(t);
@@ -46,19 +50,32 @@ export function isTournamentCreateIntent(text) {
 
 export function isAffirmative(text) {
   const t = String(text || "").toLowerCase().trim();
-  return /^(haan|han|yes|ok|okay|theek hai|thik hai|confirm|bana do|kar do|proceed|sahi hai)/.test(
-    t
+
+  return (
+    /^(haan|han|haa|yes|yess|ok|okay|theek|thik|sahi|confirm|proceed)/.test(t) ||
+    /\b(haan|han|yes|ok|okay|theek hai|thik hai|sahi hai|confirm|confirm kar do|confirm krdo|bana do|bana de|banwa do|kar do|kar de|krdo|kr de|proceed|chala do|start kar do)\b/.test(
+      t
+    )
   );
 }
 
 export function isNegative(text) {
   const t = String(text || "").toLowerCase().trim();
-  return /^(nahi|nhi|no|cancel|mat|rehne do|band karo|stop)/.test(t);
+
+  return (
+    /^(nahi|nhi|naa|no|nope|cancel|mat|rehne|band|stop)/.test(t) ||
+    /\b(nahi|nhi|no|cancel|mat banao|mat karo|rehne do|rehne de|band karo|band kar do|stop|stop karo|cancel kar do|cancel krdo)\b/.test(
+      t
+    )
+  );
 }
 
 export function isCancelWord(text) {
   const t = String(text || "").toLowerCase().trim();
-  return /cancel|band karo|rehne do|stop karo|band kar do/.test(t);
+
+  return /\b(cancel|band karo|band kar do|rehne do|rehne de|stop|stop karo|stop kar do|mat banao|mat karo|cancel kar do|cancel krdo)\b/.test(
+    t
+  );
 }
 
 // --------------------------------------------------

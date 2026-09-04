@@ -1,10 +1,14 @@
 ﻿import { NextResponse } from "next/server";
 import { requirePersonalOwner } from "../../../../lib/personal-owner";
-import { cortexApprove } from "../../../../lib/cortex/client";
+import { cortexApprove, cortexDispatch } from "../../../../lib/cortex/client";
 import { logCortexError } from "../../../../lib/cortex/errorLogger";
+import {
+  getDraft,
+  resetDraft,
+} from "../../../../lib/cortex/tournamentWizard";
 
 export async function POST(request) {
-  const { response } = await requirePersonalOwner(request);
+  const { uid, response } = await requirePersonalOwner(request);
   if (response) return response;
 
   let body;
@@ -30,11 +34,7 @@ export async function POST(request) {
     );
   }
 
-  // Security gate: VerificationModal on the frontend only sets
-  // verified=true after every required WebAuthn / pattern step
-  // has succeeded against /api/cortex/security/*. This is a
-  // belt-and-braces server-side check so a raw API call without
-  // completing verification is rejected here too.
+  // Security gate
   if (!verified) {
     return NextResponse.json(
       { success: false, error: "Verification not completed." },
@@ -43,7 +43,76 @@ export async function POST(request) {
   }
 
   try {
+    // 1. Approval mark karo
     const result = await cortexApprove({ requestId, agentId });
+
+    // 2. Check if tournament draft is still active
+    const draft = await getDraft();
+
+    if (draft && draft.active && draft.stage === "final_confirm") {
+      try {
+        const createResult = await cortexDispatch({
+          agentId: "ARIA",
+          action: "create_tournament",
+          task: "create_tournament_wizard",
+          context: {
+            source: "personal_voice",
+            uid,
+            approved: true,
+            title: draft.title,
+            game: draft.game,
+            mode: draft.mode,
+            entry_fee: draft.entryFee,
+            capacity: draft.maxSlots,
+            start_time: draft.startTime,
+            kill_reward: draft.killReward,
+            first_prize: draft.firstPrize,
+            second_prize: draft.secondPrize,
+            third_prize: draft.thirdPrize,
+          },
+        });
+
+        await resetDraft();
+
+        if (createResult?.status === "created" || createResult?.success) {
+          return NextResponse.json({
+            success: true,
+            result: {
+              success: true,
+              agent: "ARIA",
+              message: `Tournament ban gaya, Boss — "${draft.title}" live ho gaya.`,
+              tournament_created: true,
+            },
+          });
+        }
+
+        return NextResponse.json({
+          success: true,
+          result: {
+            success: false,
+            agent: "ARIA",
+            message: `Approval ho gaya, lekin tournament create nahi hua: ${
+              createResult?.message || "unknown error"
+            }`,
+          },
+        });
+      } catch (createErr) {
+        await resetDraft();
+        await logCortexError("personal/command/approve:create_tournament", createErr);
+
+        return NextResponse.json({
+          success: true,
+          result: {
+            success: false,
+            agent: "ARIA",
+            message:
+              "Approval ho gaya, lekin tournament create karte waqt error aaya.",
+          },
+        });
+      }
+    }
+
+    // Normal approval (tournament wizard nahi tha)
     return NextResponse.json({ success: true, result });
   } catch (error) {
     console.error(error);

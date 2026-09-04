@@ -77,7 +77,7 @@ async function handleWizardTurn(draft, command, uid) {
       );
     }
 
-    // Create the actual tournament via the existing bridge action.
+    // Create the actual tournament
     try {
       const result = await cortexDispatch({
         agentId: "ARIA",
@@ -99,6 +99,53 @@ async function handleWizardTurn(draft, command, uid) {
         },
       });
 
+      // ---------- CRITICAL FIX: Check for verification ----------
+      const msg = String(result?.message || result?.detail || "");
+      const verificationMatch = msg.match(
+        /^VERIFICATION_REQUIRED:([a-zA-Z+]+):(.+)$/i
+      );
+
+      const needsApprove =
+        result?.requires_approval === true ||
+        Boolean(verificationMatch) ||
+        msg.toLowerCase().includes("approve") ||
+        msg.toLowerCase().includes("approval");
+
+      if (needsApprove) {
+        // Draft mat reset karo
+        const level = verificationMatch
+          ? verificationMatch[1].toLowerCase()
+          : "fingerprint+face";
+
+        const requestId =
+          result?.request_id ||
+          result?.data?.request_id ||
+          (verificationMatch ? verificationMatch[2] : null);
+
+        return NextResponse.json({
+          success: false,
+          requires_approval: true,
+          risk: "high",
+          error: "approval_required",
+          result: {
+            requires_approval: true,
+            risk: "high",
+            required_verification: level,
+            request_id: requestId,
+            agent_id: "ARIA",
+            message:
+              "High risk action. Tournament create karne se pehle identity verification chahiye, Boss.",
+            remaining_steps: [
+              {
+                agent_id: "ARIA",
+                action: "create_tournament",
+              },
+            ],
+          },
+        });
+      }
+
+      // Verification nahi chahiye tha → ab draft reset karo
       await resetDraft();
 
       if (result?.status === "created" || result?.success) {
@@ -109,7 +156,9 @@ async function handleWizardTurn(draft, command, uid) {
       }
 
       return chatResponse(
-        `Boss, tournament banane mein dikkat aayi: ${result?.message || "unknown error"}.`,
+        `Boss, tournament banane mein dikkat aayi: ${
+          result?.message || "unknown error"
+        }.`,
         "ARIA"
       );
     } catch (err) {
@@ -125,7 +174,6 @@ async function handleWizardTurn(draft, command, uid) {
   // ---- Stage: collecting fields ----
   const field = nextMissingField(draft);
   if (!field) {
-    // All fields filled already — shouldn't normally happen, move to duplicate check.
     return runDuplicateCheck(draft);
   }
 
@@ -141,7 +189,6 @@ async function handleWizardTurn(draft, command, uid) {
     return chatResponse(getFieldQuestion(next), "ARIA");
   }
 
-  // All fields collected — run duplicate check.
   return runDuplicateCheck(updated);
 }
 
@@ -155,9 +202,12 @@ async function runDuplicateCheck(draft) {
   });
 
   if (existing) {
-    await updateDraft({ stage: "duplicate_confirm", duplicateTournamentId: existing.id });
+    await updateDraft({
+      stage: "duplicate_confirm",
+      duplicateTournamentId: existing.id,
+    });
     return chatResponse(
-      `Boss, isi time pe already ek ${draft.game} tournament hai — "${existing.title}". Phir bhi banana hai?`,
+      `Boss, isi time pe already ek \( {draft.game} tournament hai — " \){existing.title}". Phir bhi banana hai?`,
       "ARIA"
     );
   }
@@ -170,7 +220,7 @@ async function runDuplicateCheck(draft) {
 }
 
 // ============================================
-// SINGLE-STEP DISPATCH (unchanged from before)
+// SINGLE-STEP DISPATCH
 // ============================================
 
 async function runStep({ step, command, uid, approved, approvalMethod, riskHint }) {
@@ -319,7 +369,8 @@ export async function POST(request) {
           ? "fingerprint+face"
           : "fingerprint";
 
-        const risk = result?.risk || (level === "fingerprint+face" ? "high" : "medium");
+        const risk =
+          result?.risk || (level === "fingerprint+face" ? "high" : "medium");
 
         const requestId =
           result?.request_id ||
