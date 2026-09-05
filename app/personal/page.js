@@ -288,32 +288,63 @@ export default function PersonalAssistantPage() {
   // SPEAK (free browser TTS)
   // --------------------------------------------------
 
-  async function speak(text) {
-  if (!text?.trim()) return;
+  // --------------------------------------------------
+// SPEAK (server TTS: hi-IN-SwaraNeural, streamed sentence-by-sentence)
+// --------------------------------------------------
+
+const speechQueueRef = useRef([]);
+const speakingRef = useRef(false);
+const currentAudioRef = useRef(null);
+
+function splitIntoSentences(text) {
+  const cleaned = String(text).trim();
+  if (!cleaned) return [];
+
+  const parts = cleaned.match(/[^.!?]+[.!?]*/g) || [cleaned];
+  return parts.map((p) => p.trim()).filter(Boolean);
+}
+
+async function playNextInQueue() {
+  if (speakingRef.current) return;
+  const next = speechQueueRef.current.shift();
+  if (!next) return;
+
+  speakingRef.current = true;
 
   try {
-    const res = await fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+    const audio = new Audio(`/api/tts?text=${encodeURIComponent(next)}`);
+    currentAudioRef.current = audio;
+
+    await new Promise((resolve) => {
+      audio.onended = resolve;
+      audio.onerror = resolve;
+      audio.play().catch(resolve);
     });
-
-    if (!res.ok) throw new Error("TTS failed");
-
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audio.play();
-    audio.onended = () => URL.revokeObjectURL(url);
-  } catch (err) {
-    console.error("TTS error:", err);
-    // fallback to browser TTS if server fails
-    if (window.speechSynthesis) {
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.lang = "hi-IN";
-      window.speechSynthesis.speak(utter);
+  } catch {
+    // ignore and move on
+  } finally {
+    speakingRef.current = false;
+    currentAudioRef.current = null;
+    if (speechQueueRef.current.length > 0) {
+      playNextInQueue();
     }
   }
+}
+
+function speak(text) {
+  if (!text?.trim()) return;
+
+  // stop anything currently playing/queued (fresh reply interrupts old one)
+  speechQueueRef.current = [];
+  if (currentAudioRef.current) {
+    currentAudioRef.current.pause();
+    currentAudioRef.current = null;
+  }
+  speakingRef.current = false;
+
+  const sentences = splitIntoSentences(text);
+  speechQueueRef.current.push(...sentences);
+  playNextInQueue();
 }
 
   // --------------------------------------------------
