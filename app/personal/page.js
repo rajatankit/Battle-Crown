@@ -8,6 +8,46 @@ import CortexCore from "./CortexCore";
 import VerificationModal from "../../components/cortex/VerificationModal";
 import SecuritySetup from "../../components/cortex/SecuritySetup";
 
+// --------------------------------------------------
+// SLIDES FEATURE HELPERS (client-side only - this
+// entire flow is a plain Battle Crown data operation,
+// no Cortex/LLM dispatch needed)
+// --------------------------------------------------
+
+function normalizeGameKey(gameRaw) {
+  const g = String(gameRaw || "").toLowerCase();
+  if (g.includes("bgmi")) return "bgmi";
+  return "ff";
+}
+
+function parseYesNo(text) {
+  const t = text.toLowerCase();
+  if (/\b(haan|han|ha|yes|yep|ok|okay)\b/.test(t)) return "yes";
+  if (/\b(nahi|nako|no|nope|cancel)\b/.test(t)) return "no";
+  return null;
+}
+
+function parseSlideSelection(text, count) {
+  const t = text.toLowerCase();
+  if (/\b(sab|saari|sabhi|all)\b/.test(t)) {
+    return Array.from({ length: count }, (_, i) => i + 1);
+  }
+  const numbers = t.match(/\d+/g);
+  if (!numbers) return [];
+  const picked = numbers
+    .map((n) => parseInt(n, 10))
+    .filter((n) => n >= 1 && n <= count);
+  return Array.from(new Set(picked));
+}
+
+function detectSlidesIntent(text) {
+  const t = text.toLowerCase();
+  if (!/slide/.test(t)) return null;
+  if (!/(lagao|laga do|add|attach|select|dikhao|lagana)/.test(t)) return null;
+  const game = t.includes("bgmi") ? "bgmi" : "ff";
+  return { game };
+}
+
 export default function PersonalAssistantPage() {
   const [state, setState] = useState({
     loading: true,
@@ -30,10 +70,22 @@ export default function PersonalAssistantPage() {
   // { requiredVerification, requestId, agentId, remainingSteps } | null
   const [verification, setVerification] = useState(null);
 
+  // Slides gallery: { tournamentId, firestoreId, title, game, options: [{index,url}] } | null
+  const [slideGallery, setSlideGallery] = useState(null);
+
   const recognitionRef = useRef(null);
   const idTokenRef = useRef(null);
   const unlockedRef = useRef(false);
   const phaseRef = useRef(0);
+
+  // Pending yes/no ask after a tournament was just created.
+  // { tournamentId, firestoreId, title, game } | null
+  const slidesOfferRef = useRef(null);
+
+  // Waiting for the user to say a tournament title (standalone
+  // "slides lagao" flow, when we don't already have a target).
+  // { game } | null
+  const pendingSlidesTitleAskRef = useRef(null);
 
   useEffect(() => {
     unlockedRef.current = unlocked;
@@ -44,21 +96,21 @@ export default function PersonalAssistantPage() {
   }, [phase]);
 
   // --------------------------------------------------
-// ACKNOWLEDGE PENDING HIGH ALERTS (stops escalation pings)
-// --------------------------------------------------
+  // ACKNOWLEDGE PENDING HIGH ALERTS (stops escalation pings)
+  // --------------------------------------------------
 
-useEffect(() => {
-  if (!state.ownerVerified || !idTokenRef.current) return;
+  useEffect(() => {
+    if (!state.ownerVerified || !idTokenRef.current) return;
 
-  fetch("/api/cortex/alerts/acknowledge", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${idTokenRef.current}`,
-    },
-  }).catch((err) => {
-    console.error("Alert acknowledge failed:", err);
-  });
-}, [state.ownerVerified]);
+    fetch("/api/cortex/alerts/acknowledge", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${idTokenRef.current}`,
+      },
+    }).catch((err) => {
+      console.error("Alert acknowledge failed:", err);
+    });
+  }, [state.ownerVerified]);
 
   // --------------------------------------------------
   // 60 SECOND CINEMATIC ACTIVATION
@@ -233,7 +285,7 @@ useEffect(() => {
   }, []);
 
   // --------------------------------------------------
-  // SPEAK
+  // SPEAK (free browser TTS)
   // --------------------------------------------------
 
   function speak(text) {
@@ -345,128 +397,248 @@ useEffect(() => {
   }
 
   // --------------------------------------------------
+  // SLIDES: load gallery for a target tournament+game
+  // --------------------------------------------------
+
+  async function loadSlideGallery(target) {
+    try {
+      const res = await fetch(
+        `/api/slides?game=${encodeURIComponent(target.game)}&limit=12`
+      );
+      const payload = await res.json();
+
+      if (!payload.success || !Array.isArray(payload.slides) || payload.slides.length === 0) {
+        setReply(`Boss, ${target.game.toUpperCase()} ki slides Cloudinary mein nahi mili.`);
+        speak("Slides nahi mili.");
+        return;
+      }
+
+      const options = payload.slides.map((s, i) => ({ index: i + 1, url: s.url }));
+      setSlideGallery({ ...target, options });
+
+      const msg = `Ye rahi ${target.game.toUpperCase()} slides, Boss. Number boliye jaise "1 aur 3", ya "sab" bolke saari rakh sakte hain.`;
+      setReply(msg);
+      speak(msg);
+    } catch (err) {
+      setReply("Slides load karte waqt error aaya, Boss.");
+      speak("Slides load nahi ho payi.");
+    }
+  }
+
+  // --------------------------------------------------
   // COMMAND PROCESSING
   // --------------------------------------------------
 
   async function sendCommand(commandText) {
-  if (!idTokenRef.current || !commandText?.trim()) return;
+    if (!idTokenRef.current || !commandText?.trim()) return;
 
-  const text = commandText.trim().toLowerCase();
+    const text = commandText.trim().toLowerCase();
 
-  if (!unlockedRef.current) {
-    if (
-      text.includes("cortex unlock") ||
-      text.includes("cortex, unlock")
-    ) {
-      unlockedRef.current = true;
-      setUnlocked(true);
-      setPhase(0);
-      setReply("Activation sequence initiated.");
-      return;
-    }
-
-    setReply("Access denied. Say: cortex unlock");
-    speak("Access denied. Say cortex unlock");
-    return;
-  }
-
-  if (phaseRef.current < 6) {
-    setReply("Activation in progress. Stand by, Boss.");
-    return;
-  }
-
-  if (text.includes("cortex lock") || text.includes("cortex, lock")) {
-    unlockedRef.current = false;
-    setUnlocked(false);
-    setPhase(0);
-    setReply("Systems locked.");
-    speak("Systems locked.");
-    return;
-  }
-
-  setBusy(true);
-
-  try {
-    const response = await fetch("/api/personal/command", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${idTokenRef.current}`,
-      },
-      body: JSON.stringify({ command: commandText }),
-    });
-
-    const payload = await response.json();
-
-    // ---------- NEW: Always check for verification first ----------
-    const approval = extractApprovalRequest(payload);
-
-    // Also check legacy text even if success is true
-    if (!approval) {
-      const spokenMsg =
-        payload?.result?.message ||
-        payload?.result?.data?.message ||
-        payload?.message ||
-        "";
-      const legacy = parseVerificationRequired(spokenMsg);
-      if (legacy) {
-        setReply(
-          legacy.requiredVerification === "fingerprint+face"
-            ? "High risk. Biometric + pattern verification required, Boss."
-            : "Verification required, Boss."
-        );
-        speak(
-          legacy.requiredVerification === "fingerprint+face"
-            ? "High risk command. Identity verification required."
-            : "Identity verification required."
-        );
-        setVerification({
-          requiredVerification: legacy.requiredVerification,
-          requestId: legacy.requestId,
-          agentId: "cortex",
-          remainingSteps: null,
-        });
+    if (!unlockedRef.current) {
+      if (
+        text.includes("cortex unlock") ||
+        text.includes("cortex, unlock")
+      ) {
+        unlockedRef.current = true;
+        setUnlocked(true);
+        setPhase(0);
+        setReply("Activation sequence initiated.");
         return;
       }
-    }
 
-    if (approval) {
-      setReply(
-        approval.requiredVerification === "fingerprint+face"
-          ? "High risk. Biometric + pattern verification required, Boss."
-          : "Verification required, Boss."
-      );
-      speak(
-        approval.requiredVerification === "fingerprint+face"
-          ? "High risk command. Identity verification required."
-          : "Identity verification required."
-      );
-      setVerification(approval);
+      setReply("Access denied. Say: cortex unlock");
+      speak("Access denied. Say cortex unlock");
       return;
     }
 
-    if (!payload.success) {
-      setReply(`Error: ${payload.error || "Command failed."}`);
-      speak("Command failed, Boss.");
+    if (phaseRef.current < 6) {
+      setReply("Activation in progress. Stand by, Boss.");
       return;
     }
 
-    const spoken =
-      payload.result?.message ||
-      payload.result?.data?.message ||
-      payload.message ||
-      "Done, Boss.";
+    if (text.includes("cortex lock") || text.includes("cortex, lock")) {
+      unlockedRef.current = false;
+      setUnlocked(false);
+      setPhase(0);
+      setReply("Systems locked.");
+      speak("Systems locked.");
+      return;
+    }
 
-    const clean = String(spoken).trim();
-    setReply(clean);
-    speak(clean);
-  } catch (error) {
-    setReply(`Error: ${error?.message || "Something went wrong."}`);
-    speak("Something went wrong, Boss.");
-  } finally {
-    setBusy(false);
+    // ---- Slide gallery active: user is picking numbers ----
+    if (slideGallery) {
+      const picks = parseSlideSelection(text, slideGallery.options.length);
+      if (picks.length === 0) {
+        setReply('Boss, number boliye jaise "1 aur 3", ya "sab".');
+        speak("Number boliye ya sab boliye.");
+        return;
+      }
+
+      const urls = picks
+        .map((i) => slideGallery.options.find((o) => o.index === i)?.url)
+        .filter(Boolean);
+
+      setBusy(true);
+      try {
+        const res = await fetch("/api/personal/slides/attach", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${idTokenRef.current}`,
+          },
+          body: JSON.stringify({
+            firestoreId: slideGallery.firestoreId,
+            slides: urls,
+          }),
+        });
+        const payload = await res.json();
+
+        const title = slideGallery.title;
+        setSlideGallery(null);
+        slidesOfferRef.current = null;
+
+        if (payload.success) {
+          const msg = `Slides laga di, Boss — "${title}" par ${urls.length} slide${urls.length > 1 ? "s" : ""} live hain.`;
+          setReply(msg);
+          speak(msg);
+        } else {
+          setReply(`Boss, slides lagane mein dikkat aayi: ${payload.error || "unknown error"}`);
+          speak("Slides lagane mein dikkat aayi.");
+        }
+      } catch (err) {
+        setReply("Slides save karte waqt error aaya, Boss.");
+        speak("Error aaya slides save karte waqt.");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    // ---- Pending yes/no offer after tournament creation ----
+    if (slidesOfferRef.current) {
+      const answer = parseYesNo(text);
+      const target = slidesOfferRef.current;
+
+      if (answer === "no") {
+        slidesOfferRef.current = null;
+        setReply("Theek hai Boss, slides baad mein laga lenge.");
+        speak("Theek hai Boss.");
+        return;
+      }
+
+      if (answer === "yes") {
+        setBusy(true);
+        await loadSlideGallery(target);
+        setBusy(false);
+        return;
+      }
+
+      setReply('Boss, "haan" ya "nahi" boliye.');
+      speak("Haan ya nahi boliye.");
+      return;
+    }
+
+    // ---- Waiting for a tournament title (standalone slides flow) ----
+    if (pendingSlidesTitleAskRef.current) {
+      const game = pendingSlidesTitleAskRef.current.game;
+      pendingSlidesTitleAskRef.current = null;
+
+      setBusy(true);
+      try {
+        const res = await fetch("/api/personal/slides/find-tournament", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${idTokenRef.current}`,
+          },
+          body: JSON.stringify({ title: commandText.trim() }),
+        });
+        const payload = await res.json();
+
+        if (!payload.success) {
+          setReply(`Boss, "${commandText.trim()}" naam ka tournament nahi mila.`);
+          speak("Tournament nahi mila.");
+          setBusy(false);
+          return;
+        }
+
+        await loadSlideGallery({
+          tournamentId: payload.tournament.tournamentId,
+          firestoreId: payload.tournament.firestoreId,
+          title: payload.tournament.title,
+          game,
+        });
+      } catch (err) {
+        setReply("Tournament dhoondhte waqt error aaya, Boss.");
+        speak("Error aaya.");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    // ---- Standalone "slides lagao" trigger ----
+    const slidesIntent = detectSlidesIntent(text);
+    if (slidesIntent) {
+      pendingSlidesTitleAskRef.current = { game: slidesIntent.game };
+      setReply("Boss, kis tournament ke liye? Title boliye.");
+      speak("Kis tournament ke liye, title boliye.");
+      return;
+    }
+
+    setBusy(true);
+
+    try {
+      const response = await fetch("/api/personal/command", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idTokenRef.current}`,
+        },
+        body: JSON.stringify({ command: commandText }),
+      });
+
+      const payload = await response.json();
+
+      if (!payload.success) {
+        const approval = extractApprovalRequest(payload);
+        if (approval) {
+          setReply(
+            approval.requiredVerification === "fingerprint+face"
+              ? "High risk. Biometric + pattern verification required, Boss."
+              : "Verification required, Boss."
+          );
+          speak(
+            approval.requiredVerification === "fingerprint+face"
+              ? "High risk command. Identity verification required."
+              : "Identity verification required."
+          );
+          setVerification(approval);
+          return;
+        }
+
+        setReply(`Error: ${payload.error || "Command failed."}`);
+        speak("Command failed, Boss.");
+        return;
+      }
+
+      const spoken =
+        payload.result?.message ||
+        payload.result?.data?.message ||
+        payload.message ||
+        "Done, Boss.";
+
+      const clean = String(spoken).trim();
+
+      setReply(clean);
+      speak(clean);
+    } catch (error) {
+      setReply(`Error: ${error?.message || "Something went wrong."}`);
+      speak("Something went wrong, Boss.");
+    } finally {
+      setBusy(false);
+    }
   }
-}
 
   // --------------------------------------------------
   // VERIFICATION HANDLERS
@@ -490,6 +662,12 @@ useEffect(() => {
 
     setVerification(null);
 
+    // If this approval just created a tournament, offer to attach
+    // slides right away (the Python create_tournament tool returns
+    // {status:"created", tournament: {tournament_id, firestore_id,
+    // title, game, ...}} nested under result.data).
+    const createdTournament = data?.result?.data?.tournament;
+
     const spoken =
       data?.result?.message ||
       data?.result?.data?.message ||
@@ -497,6 +675,20 @@ useEffect(() => {
       "Approved and done, Boss.";
 
     const clean = String(spoken).trim();
+
+    if (createdTournament?.firestore_id) {
+      slidesOfferRef.current = {
+        tournamentId: createdTournament.tournament_id,
+        firestoreId: createdTournament.firestore_id,
+        title: createdTournament.title,
+        game: normalizeGameKey(createdTournament.game),
+      };
+      const combined = `${clean} Iske liye slides lagani hain kya, Boss?`;
+      setReply(combined);
+      speak(combined);
+      return;
+    }
+
     setReply(clean);
     speak(clean);
   }
@@ -569,6 +761,8 @@ useEffect(() => {
     ? "PROCESSING"
     : verification
     ? "VERIFYING"
+    : slideGallery
+    ? "SELECTING SLIDES"
     : "ONLINE";
 
   return (
@@ -610,26 +804,60 @@ useEffect(() => {
         </p>
       </div>
 
-      <button
-        type="button"
-        onClick={handleCoreTap}
-        disabled={
-          listening || busy || !!verification || (unlocked && phase < 6)
-        }
-        aria-label="Cortex Core"
-        className="relative z-20 flex items-center justify-center focus:outline-none disabled:cursor-default"
-        style={{
-          width: "min(92vw, 620px)",
-          height: "min(92vw, 620px)",
-          minHeight: "360px",
-          minWidth: "360px",
-          maxWidth: "620px",
-          maxHeight: "620px",
-          perspective: "1200px",
-        }}
-      >
-        <CortexCore phase={phase} unlocked={unlocked} listening={listening} />
-      </button>
+      {!slideGallery && (
+        <button
+          type="button"
+          onClick={handleCoreTap}
+          disabled={
+            listening || busy || !!verification || (unlocked && phase < 6)
+          }
+          aria-label="Cortex Core"
+          className="relative z-20 flex items-center justify-center focus:outline-none disabled:cursor-default"
+          style={{
+            width: "min(92vw, 620px)",
+            height: "min(92vw, 620px)",
+            minHeight: "360px",
+            minWidth: "360px",
+            maxWidth: "620px",
+            maxHeight: "620px",
+            perspective: "1200px",
+          }}
+        >
+          <CortexCore phase={phase} unlocked={unlocked} listening={listening} />
+        </button>
+      )}
+
+      {slideGallery && (
+        <div className="relative z-20 w-full max-w-sm px-6">
+          <div className="grid grid-cols-4 gap-2">
+            {slideGallery.options.map((opt) => (
+              <div key={opt.index} className="relative">
+                <img
+                  src={opt.url}
+                  alt={`slide ${opt.index}`}
+                  className="w-full h-16 object-cover rounded border border-red-900"
+                />
+                <span className="absolute top-0 left-0 bg-black/70 text-red-400 text-[10px] px-1 rounded-br">
+                  {opt.index}
+                </span>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={handleCoreTap}
+            disabled={listening || busy}
+            className="mt-4 w-full rounded-full py-3 text-xs tracking-[0.2em]"
+            style={{
+              border: "1px solid #ff2a10",
+              color: "#ff6a55",
+              background: "transparent",
+            }}
+          >
+            {listening ? "LISTENING…" : "TAP AND SPEAK YOUR PICK"}
+          </button>
+        </div>
+      )}
 
       <div className="absolute bottom-28 left-0 right-0 z-30 flex flex-col items-center px-6 space-y-2 pointer-events-none">
         {transcript && (
@@ -653,6 +881,8 @@ useEffect(() => {
             ? "Activation sequence in progress…"
             : verification
             ? "Identity verification in progress…"
+            : slideGallery
+            ? "Tap the button above and speak your pick"
             : listening
             ? "Listening…"
             : busy
