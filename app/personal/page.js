@@ -21,9 +21,57 @@ function normalizeGameKey(gameRaw) {
 }
 
 function parseYesNo(text) {
-  const t = text.toLowerCase();
-  if (/\b(haan|han|ha|yes|yep|ok|okay)\b/.test(t)) return "yes";
-  if (/\b(nahi|nako|no|nope|cancel)\b/.test(t)) return "no";
+  const t = String(text || "")
+    .toLowerCase()
+    .replace(/[.,!?;:'"؟۔]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!t) return null;
+
+  // \~50 flexible yes phrases (English + Hindi + Hinglish)
+  const yesList = [
+    "yes", "yeah", "yep", "yup", "ya", "yea", "yesh",
+    "ok", "okay", "okey", "sure", "surely", "alright", "all right",
+    "of course", "go ahead", "do it", "please do", "confirm", "confirmed",
+    "affirmative", "right", "correct",
+    "haan", "han", "haa", "ha", "hji", "hanji", "haanji",
+    "ha ji", "han ji", "haan ji", "ji", "ji haan", "ji han",
+    "theek", "theek hai", "thik", "thik hai", "sahi", "sahi hai",
+    "bilkul", "bilkul sahi", "pakka", "pakka hai",
+    "kar do", "karo", "kar dena", "laga do", "lagao", "laga dena",
+    "ho jaaye", "ho jaye", "done karo", "yes karo", "haan karo",
+  ];
+
+  // \~50 flexible no phrases (English + Hindi + Hinglish)
+  const noList = [
+    "no", "nope", "nah", "na", "not", "don't", "dont", "do not",
+    "cancel", "stop", "never", "negative", "skip", "later",
+    "no need", "not now", "leave it", "forget it", "no thanks", "no thank you",
+    "nahi", "nahin", "nhi", "nahii", "nahin", "naa",
+    "nahi hai", "nahin hai", "nhi hai",
+    "mat", "mat karo", "mat kar", "mat laga", "mat lagao", "mat lagana",
+    "nako", "na re", "nahi chahiye", "nahin chahiye", "nhi chahiye",
+    "zaroorat nahi", "zarurat nahi", "zaroorat nahin",
+    "baad mein", "baad me", "baad", "rehne do", "rehnedo", "rehne de",
+    "chhodo", "chhod do", "chhod dena", "leave", "no slides",
+    "cancel karo", "cancel it", "nahi bhai", "nahin bhai", "nhi bhai",
+  ];
+
+  const sortedYes = [...yesList].sort((a, b) => b.length - a.length);
+  const sortedNo = [...noList].sort((a, b) => b.length - a.length);
+
+  for (const p of sortedYes) {
+    if (t === p || t.includes(p)) return "yes";
+  }
+  for (const p of sortedNo) {
+    if (t === p || t.includes(p)) return "no";
+  }
+
+  // single-letter fallback (speech sometimes returns just y / n)
+  if (/^(y|h)$/.test(t)) return "yes";
+  if (/^(n)$/.test(t)) return "no";
+
   return null;
 }
 
@@ -285,106 +333,102 @@ export default function PersonalAssistantPage() {
   }, []);
 
   // --------------------------------------------------
-  // SPEAK (free browser TTS)
+  // SPEAK (server TTS: hi-IN-SwaraNeural, streamed sentence-by-sentence)
   // --------------------------------------------------
 
-  // --------------------------------------------------
-// SPEAK (server TTS: hi-IN-SwaraNeural, streamed sentence-by-sentence)
-// --------------------------------------------------
+  const speechQueueRef = useRef([]);
+  const speakingRef = useRef(false);
+  const currentAudioRef = useRef(null);
 
-const speechQueueRef = useRef([]);
-const speakingRef = useRef(false);
-const currentAudioRef = useRef(null);
+  function splitIntoSentences(text) {
+    const cleaned = String(text).trim();
+    if (!cleaned) return [];
 
-function splitIntoSentences(text) {
-  const cleaned = String(text).trim();
-  if (!cleaned) return [];
+    const parts = cleaned.match(/[^.!?]+[.!?]*/g) || [cleaned];
+    return parts.map((p) => p.trim()).filter(Boolean);
+  }
 
-  const parts = cleaned.match(/[^.!?]+[.!?]*/g) || [cleaned];
-  return parts.map((p) => p.trim()).filter(Boolean);
-}
+  async function playNextInQueue() {
+    if (speakingRef.current) return;
+    const next = speechQueueRef.current.shift();
+    if (!next) return;
 
-async function playNextInQueue() {
-  if (speakingRef.current) return;
-  const next = speechQueueRef.current.shift();
-  if (!next) return;
+    speakingRef.current = true;
 
-  speakingRef.current = true;
+    try {
+      const audio = new Audio(`/api/tts?text=${encodeURIComponent(next)}`);
+      audio.setAttribute("playsinline", "true");
+      audio.volume = 1;
+      currentAudioRef.current = audio;
 
-  try {
-    const audio = new Audio(`/api/tts?text=${encodeURIComponent(next)}`);
-audio.setAttribute("playsinline", "true");
-audio.volume = 1;
-currentAudioRef.current = audio;
-
-await new Promise((resolve) => {
-  audio.onended = resolve;
-  audio.onerror = resolve;
-  audio.play().catch(resolve);
-});
-  } catch {
-    // ignore and move on
-  } finally {
-    speakingRef.current = false;
-    currentAudioRef.current = null;
-    if (speechQueueRef.current.length > 0) {
-      playNextInQueue();
+      await new Promise((resolve) => {
+        audio.onended = resolve;
+        audio.onerror = resolve;
+        audio.play().catch(resolve);
+      });
+    } catch {
+      // ignore and move on
+    } finally {
+      speakingRef.current = false;
+      currentAudioRef.current = null;
+      if (speechQueueRef.current.length > 0) {
+        playNextInQueue();
+      }
     }
   }
-}
 
-function speak(text) {
-  if (!text?.trim()) return;
+  function speak(text) {
+    if (!text?.trim()) return;
 
-  // stop anything currently playing/queued (fresh reply interrupts old one)
-  speechQueueRef.current = [];
-  if (currentAudioRef.current) {
-    currentAudioRef.current.pause();
-    currentAudioRef.current = null;
+    // stop anything currently playing/queued (fresh reply interrupts old one)
+    speechQueueRef.current = [];
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current = null;
+    }
+    speakingRef.current = false;
+
+    const sentences = splitIntoSentences(text);
+    speechQueueRef.current.push(...sentences);
+    playNextInQueue();
   }
-  speakingRef.current = false;
-
-  const sentences = splitIntoSentences(text);
-  speechQueueRef.current.push(...sentences);
-  playNextInQueue();
-}
 
   // --------------------------------------------------
   // CORE TAP
   // --------------------------------------------------
 
   function handleCoreTap() {
-  // Unlock audio on first user gesture (mobile browsers)
-  try {
-    const unlock = new Audio(
-      "/api/tts?text=" + encodeURIComponent(" ")
-    );
-    unlock.volume = 0.01;
-    unlock
-      .play()
-      .then(() => {
-        unlock.pause();
-      })
-      .catch(() => {});
-  } catch {
-    // ignore
-  }
+    // Unlock audio on first user gesture (mobile browsers)
+    try {
+      const unlock = new Audio(
+        "/api/tts?text=" + encodeURIComponent(" ")
+      );
+      unlock.volume = 0.01;
+      unlock
+        .play()
+        .then(() => {
+          unlock.pause();
+        })
+        .catch(() => {});
+    } catch {
+      // ignore
+    }
 
-  if (!recognitionRef.current || listening || busy || verification) {
-    return;
-  }
-  if (unlocked && phase < 6) return;
+    if (!recognitionRef.current || listening || busy || verification) {
+      return;
+    }
+    if (unlocked && phase < 6) return;
 
-  setTranscript("");
-  setReply("");
-  setListening(true);
+    setTranscript("");
+    setReply("");
+    setListening(true);
 
-  try {
-    recognitionRef.current.start();
-  } catch {
-    setListening(false);
+    try {
+      recognitionRef.current.start();
+    } catch {
+      setListening(false);
+    }
   }
-}
 
   // --------------------------------------------------
   // PARSE VERIFICATION_REQUIRED (legacy text-based fallback)
@@ -547,7 +591,7 @@ function speak(text) {
         slidesOfferRef.current = null;
 
         if (payload.success) {
-          const msg = `Slides laga di, Boss — "${title}" par ${urls.length} slide${urls.length > 1 ? "s" : ""} live hain.`;
+          const msg = `Slides laga di, Boss — "${title}" par \( {urls.length} slide \){urls.length > 1 ? "s" : ""} live hain.`;
           setReply(msg);
           speak(msg);
         } else {
