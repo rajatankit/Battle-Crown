@@ -236,35 +236,33 @@ useEffect(() => {
   // SPEAK
   // --------------------------------------------------
 
-  async function speak(text) {
-  if (typeof window === "undefined") return;
-  if (!text?.trim()) return;
+  function speak(text) {
+    if (typeof window === "undefined") return;
+    if (!window.speechSynthesis) return;
+    if (!text?.trim()) return;
 
-  try {
-    const res = await fetch("/api/cortex/voice", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: text.trim() }),
-    });
+    window.speechSynthesis.cancel();
 
-    if (!res.ok) throw new Error("Voice request failed");
+    const utterance = new SpeechSynthesisUtterance(String(text).trim());
+    utterance.lang = "en-US";
+    utterance.rate = 0.82;
+    utterance.pitch = 0.48;
+    utterance.volume = 1;
 
-    const audioBlob = await res.blob();
-    const audioUrl = URL.createObjectURL(audioBlob);
-    const audio = new Audio(audioUrl);
+    const voices = window.speechSynthesis.getVoices();
+    const preferred = voices.find(
+      (voice) =>
+        /david|mark|guy|alex|daniel/i.test(voice.name) &&
+        voice.lang.startsWith("en")
+    );
+    const american = voices.find((voice) => voice.lang === "en-US");
+    const english = voices.find((voice) => voice.lang.startsWith("en"));
+    const selectedVoice = preferred || american || english;
 
-    audio.play();
+    if (selectedVoice) utterance.voice = selectedVoice;
 
-    audio.onended = () => URL.revokeObjectURL(audioUrl);
-  } catch (err) {
-    console.error("Speak error:", err);
-    // Fallback to browser TTS if ElevenLabs fails
-    if (window.speechSynthesis) {
-      const utterance = new SpeechSynthesisUtterance(text.trim());
-      window.speechSynthesis.speak(utterance);
-    }
+    window.speechSynthesis.speak(utterance);
   }
-} 
 
   // --------------------------------------------------
   // CORE TAP
