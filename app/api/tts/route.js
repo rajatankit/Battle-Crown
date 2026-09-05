@@ -1,21 +1,7 @@
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 
-function toSSML(text) {
-  const escaped = text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-
-  const withPauses = escaped
-    .replace(/,/g, ',<break time="200ms"/>')
-    .replace(/([.!?])/g, '$1<break time="350ms"/>');
-
-  return `<speak version="1.0" xml:lang="hi-IN">
-    <voice name="hi-IN-SwaraNeural">
-      <prosody rate="3%" pitch="0%">${withPauses}</prosody>
-    </voice>
-  </speak>`;
-}
+// Natural Hindi female (free Edge neural)
+const VOICE = "hi-IN-SwaraNeural";
 
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
@@ -25,14 +11,18 @@ export async function GET(req) {
     return new Response("No text", { status: 400 });
   }
 
+  // Keep requests short — long text = timeouts
+  const clean = text.trim().slice(0, 400);
+
   try {
     const tts = new MsEdgeTTS();
     await tts.setMetadata(
-      "hi-IN-SwaraNeural",
+      VOICE,
       OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3
     );
 
-    const { audioStream } = tts.toStream(toSSML(text));
+    // Plain text is more reliable than SSML with msedge-tts
+    const { audioStream } = tts.toStream(clean);
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -55,6 +45,15 @@ export async function GET(req) {
     });
   } catch (err) {
     console.error("TTS generation failed:", err);
-    return new Response("TTS failed", { status: 500 });
+    return new Response(
+      JSON.stringify({
+        error: "TTS failed",
+        detail: err?.message || String(err),
+      }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
   }
 }

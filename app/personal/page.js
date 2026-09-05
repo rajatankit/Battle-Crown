@@ -313,13 +313,15 @@ async function playNextInQueue() {
 
   try {
     const audio = new Audio(`/api/tts?text=${encodeURIComponent(next)}`);
-    currentAudioRef.current = audio;
+audio.setAttribute("playsinline", "true");
+audio.volume = 1;
+currentAudioRef.current = audio;
 
-    await new Promise((resolve) => {
-      audio.onended = resolve;
-      audio.onerror = resolve;
-      audio.play().catch(resolve);
-    });
+await new Promise((resolve) => {
+  audio.onended = resolve;
+  audio.onerror = resolve;
+  audio.play().catch(resolve);
+});
   } catch {
     // ignore and move on
   } finally {
@@ -352,21 +354,37 @@ function speak(text) {
   // --------------------------------------------------
 
   function handleCoreTap() {
-    if (!recognitionRef.current || listening || busy || verification) {
-      return;
-    }
-    if (unlocked && phase < 6) return;
-
-    setTranscript("");
-    setReply("");
-    setListening(true);
-
-    try {
-      recognitionRef.current.start();
-    } catch {
-      setListening(false);
-    }
+  // Unlock audio on first user gesture (mobile browsers)
+  try {
+    const unlock = new Audio(
+      "/api/tts?text=" + encodeURIComponent(" ")
+    );
+    unlock.volume = 0.01;
+    unlock
+      .play()
+      .then(() => {
+        unlock.pause();
+      })
+      .catch(() => {});
+  } catch {
+    // ignore
   }
+
+  if (!recognitionRef.current || listening || busy || verification) {
+    return;
+  }
+  if (unlocked && phase < 6) return;
+
+  setTranscript("");
+  setReply("");
+  setListening(true);
+
+  try {
+    recognitionRef.current.start();
+  } catch {
+    setListening(false);
+  }
+}
 
   // --------------------------------------------------
   // PARSE VERIFICATION_REQUIRED (legacy text-based fallback)
