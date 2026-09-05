@@ -288,33 +288,33 @@ export default function PersonalAssistantPage() {
   // SPEAK (free browser TTS)
   // --------------------------------------------------
 
-  function speak(text) {
-    if (typeof window === "undefined") return;
-    if (!window.speechSynthesis) return;
-    if (!text?.trim()) return;
+  async function speak(text) {
+  if (!text?.trim()) return;
 
-    window.speechSynthesis.cancel();
+  try {
+    const res = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
 
-    const utterance = new SpeechSynthesisUtterance(String(text).trim());
-    utterance.lang = "en-US";
-    utterance.rate = 0.82;
-    utterance.pitch = 0.48;
-    utterance.volume = 1;
+    if (!res.ok) throw new Error("TTS failed");
 
-    const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find(
-      (voice) =>
-        /david|mark|guy|alex|daniel/i.test(voice.name) &&
-        voice.lang.startsWith("en")
-    );
-    const american = voices.find((voice) => voice.lang === "en-US");
-    const english = voices.find((voice) => voice.lang.startsWith("en"));
-    const selectedVoice = preferred || american || english;
-
-    if (selectedVoice) utterance.voice = selectedVoice;
-
-    window.speechSynthesis.speak(utterance);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.play();
+    audio.onended = () => URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error("TTS error:", err);
+    // fallback to browser TTS if server fails
+    if (window.speechSynthesis) {
+      const utter = new SpeechSynthesisUtterance(text);
+      utter.lang = "hi-IN";
+      window.speechSynthesis.speak(utter);
+    }
   }
+}
 
   // --------------------------------------------------
   // CORE TAP
