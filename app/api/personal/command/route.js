@@ -140,6 +140,48 @@ function formatToolReply(step, result) {
     if (data.status === "not_found") return "Boss, wo player nahi mila.";
   }
 
+  if (step.action === "read_withdrawal_status") {
+    if (Array.isArray(data.withdrawals)) {
+      const list = data.withdrawals;
+      if (list.length === 0) return "Boss, koi pending withdrawal nahi hai abhi.";
+      const preview = list
+        .slice(0, 5)
+        .map((w) => `${w.user_name || w.user_email || "unknown"} - ₹${w.amount}`)
+        .join(", ");
+      const more = list.length > 5 ? " aur baaki." : ".";
+      return `Boss, ${list.length} pending withdrawal hain: ${preview}${more}`;
+    }
+  }
+
+  if (step.action === "read_match_data") {
+    if (Array.isArray(data.matches)) {
+      const list = data.matches;
+      if (list.length === 0) return "Boss, koi pending screenshot nahi hai abhi.";
+      const preview = list
+        .slice(0, 5)
+        .map((m) => `${m.ign || m.uid || "player"} - "${m.tournament}"`)
+        .join(", ");
+      const more = list.length > 5 ? " aur baaki." : ".";
+      return `Boss, ${list.length} pending screenshot verification hain: ${preview}${more}`;
+    }
+  }
+
+  if (step.action === "update_tournament") {
+    if (data.status === "not_found") return "Boss, wo tournament nahi mila update karne ke liye.";
+    if (data.status === "updated") {
+      const t = data.data || {};
+      return `Boss, "${t.title}" update kar diya.`;
+    }
+  }
+
+  if (step.action === "delete_tournament") {
+    if (data.status === "not_found") return "Boss, wo tournament nahi mila delete karne ke liye.";
+    if (data.status === "deleted") {
+      const t = data.data || {};
+      return `Boss, "${t.title}" tournament delete kar diya.`;
+    }
+  }
+
   return null;
 }
 
@@ -459,8 +501,8 @@ export async function POST(request) {
 
       let stepMessage =
         formatToolReply(step, result) ||
-        result?.message ||
         result?.data?.message ||
+        result?.message ||
         "Done, Boss.";
 
       if (

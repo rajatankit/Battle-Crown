@@ -60,12 +60,35 @@ function asDate(value) {
   return d;
 }
 
+// Finds a tournament row by id (preferred) or by a fuzzy, case-insensitive
+// title match (most recent match wins if several exist). Shared by
+// update_tournament and delete_tournament so both resolve a target
+// the same way.
+async function findTournamentRow(context) {
+  const tournamentId = asInt(context.tournament_id ?? context.id);
+  if (tournamentId) {
+    return prisma.tournament.findUnique({ where: { id: tournamentId } });
+  }
+
+  const title = asString(context.title);
+  if (title) {
+    return prisma.tournament.findFirst({
+      where: { title: { contains: title, mode: "insensitive" } },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  return null;
+}
+
 /*
  * POST /api/cortex/tournaments
  *
  * Actions:
  *   create_tournament
- *   get_tournament
+ *   get_tournament     (by tournament_id, firestore_id, or title)
+ *   update_tournament  (by tournament_id or title - edits fields)
+ *   delete_tournament  (by tournament_id or title)
  *
  * Hybrid:
  *   Neon  = ops + room secrets (roomId, roomPassword)
@@ -96,7 +119,6 @@ export async function POST(request) {
       const mode = asString(context.mode) || null;
       const status = asString(context.status, "upcoming") || "upcoming";
 
-      // Prisma: entryFee is String?
       const entryFeeRaw = context.entry_fee ?? context.entryFee;
       const entryFee =
         entryFeeRaw === undefined || entryFeeRaw === null || entryFeeRaw === ""
@@ -121,7 +143,6 @@ export async function POST(request) {
         return json({ status: "error", message: "title is required" }, 400);
       }
 
-      // ---- 1) Neon / Prisma ----
       const neonRow = await prisma.tournament.create({
         data: {
           title,
@@ -159,7 +180,6 @@ export async function POST(request) {
         },
       });
 
-      // ---- 2) Firestore (public — NO roomPassword) ----
       const firestorePayload = {
         title: neonRow.title,
         name: neonRow.title,
@@ -176,11 +196,8 @@ export async function POST(request) {
         thirdPrize: neonRow.thirdPrize,
         killReward: neonRow.killReward,
         roomId: neonRow.roomId,
-        // roomPassword intentionally omitted
         neonTournamentId: neonRow.id,
-        startTime: neonRow.startTime
-          ? neonRow.startTime.toISOString()
-          : null,
+        startTime: neonRow.startTime ? neonRow.startTime.toISOString() : null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         createdBy: "cortex",
@@ -189,7 +206,6 @@ export async function POST(request) {
 
       const docRef = await adminDb.collection("tournaments").add(firestorePayload);
 
-      // ---- 3) Link firestoreId back on Neon ----
       const linked = await prisma.tournament.update({
         where: { id: neonRow.id },
         data: { firestoreId: docRef.id },
@@ -223,11 +239,12 @@ export async function POST(request) {
     }
 
     // ========================================================
-    // GET TOURNAMENT
+    // GET TOURNAMENT  (by id, firestore_id, or title)
     // ========================================================
     if (action === "get_tournament") {
       const tournamentId = asInt(context.tournament_id ?? context.id);
       const firestoreId = asString(context.firestore_id);
+      const title = asString(context.title);
 
       if (tournamentId) {
         const row = await prisma.tournament.findUnique({
@@ -278,10 +295,7 @@ export async function POST(request) {
       }
 
       if (firestoreId) {
-        const snap = await adminDb
-          .collection("tournaments")
-          .doc(firestoreId)
-          .get();
+        const snap = await adminDb.collection("tournaments").doc(firestoreId).get();
 
         if (!snap.exists) {
           return json({
@@ -299,13 +313,202 @@ export async function POST(request) {
         });
       }
 
+      if (title) {
+        const row = await prisma.tournament.findFirst({
+          where: { title: { contains: title, mode: "insensitive" } },
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            firestoreId: true,
+            title: true,
+            game: true,
+            map: true,
+            mode: true,
+            entryFee: true,
+            maxSlots: true,
+            status: true,
+            roomId: true,
+            roomPassword: true,
+            startTime: true,
+          },
+        });
+
+        if (!row) {
+          return json({
+            status: "not_found",
+            action: "get_tournament",
+            message: "No tournament matched that title",
+            title,
+          });
+        }
+
+        return json({
+          status: "ok",
+          action: "get_tournament",
+          data: {
+            tournament_id: row.id,
+            firestore_id: row.firestoreId,
+            title: row.title,
+            game: row.game,
+            map: row.map,
+            mode: row.mode,
+            entryFee: row.entryFee,
+            capacity: row.maxSlots,
+            status: row.status,
+            room_id: row.roomId,
+            password: row.roomPassword,
+            startTime: row.startTime,
+          },
+        });
+      }
+
       return json(
         {
           status: "error",
-          message: "tournament_id or firestore_id is required",
+          message: "tournament_id, firestore_id, or title is required",
         },
         400
       );
+    }
+
+    // ========================================================
+    // UPDATE TOURNAMENT  (by tournament_id or title)
+    // ========================================================
+    if (action === "update_tournament") {
+      const row = await findTournamentRow(context);
+
+      if (!row) {
+        return json({
+          status: "not_found",
+          action: "update_tournament",
+          message: "Tournament not found for update",
+        });
+      }
+
+      const data = {};
+      if (context.new_title) data.title = asString(context.new_title);
+      if (context.game !== undefined) data.game = asString(context.game) || row.game;
+      if (context.map !== undefined) data.map = asString(context.map) || null;
+      if (context.mode !== undefined) data.mode = asString(context.mode) || null;
+      if (context.entryFee !== undefined || context.entry_fee !== undefined) {
+        const v = context.entryFee ?? context.entry_fee;
+        data.entryFee = v === "" || v === null ? null : String(v);
+      }
+      if (context.maxSlots !== undefined || context.capacity !== undefined) {
+        data.maxSlots = asInt(context.maxSlots ?? context.capacity, row.maxSlots);
+      }
+      if (context.status !== undefined) data.status = asString(context.status) || row.status;
+      if (context.firstPrize !== undefined || context.first_prize !== undefined) {
+        data.firstPrize = asFloat(context.firstPrize ?? context.first_prize, row.firstPrize);
+      }
+      if (context.secondPrize !== undefined || context.second_prize !== undefined) {
+        data.secondPrize = asFloat(context.secondPrize ?? context.second_prize, row.secondPrize);
+      }
+      if (context.thirdPrize !== undefined || context.third_prize !== undefined) {
+        data.thirdPrize = asFloat(context.thirdPrize ?? context.third_prize, row.thirdPrize);
+      }
+      if (context.killReward !== undefined || context.kill_reward !== undefined) {
+        data.killReward = asFloat(context.killReward ?? context.kill_reward, row.killReward);
+      }
+      if (context.startTime !== undefined || context.start_time !== undefined) {
+        data.startTime = asDate(context.startTime ?? context.start_time);
+      }
+
+      if (Object.keys(data).length === 0) {
+        return json({ status: "error", message: "No updatable fields provided" }, 400);
+      }
+
+      const updated = await prisma.tournament.update({
+        where: { id: row.id },
+        data,
+        select: {
+          id: true,
+          firestoreId: true,
+          title: true,
+          game: true,
+          map: true,
+          mode: true,
+          entryFee: true,
+          maxSlots: true,
+          status: true,
+          firstPrize: true,
+          secondPrize: true,
+          thirdPrize: true,
+          killReward: true,
+          startTime: true,
+        },
+      });
+
+      if (updated.firestoreId) {
+        const firestorePayload = { updatedAt: new Date().toISOString() };
+        if (data.title !== undefined) {
+          firestorePayload.title = updated.title;
+          firestorePayload.name = updated.title;
+        }
+        if (data.game !== undefined) firestorePayload.game = updated.game;
+        if (data.map !== undefined) firestorePayload.map = updated.map;
+        if (data.mode !== undefined) firestorePayload.mode = updated.mode;
+        if (data.entryFee !== undefined) firestorePayload.entryFee = updated.entryFee;
+        if (data.maxSlots !== undefined) {
+          firestorePayload.maxSlots = updated.maxSlots;
+          firestorePayload.capacity = updated.maxSlots;
+        }
+        if (data.status !== undefined) firestorePayload.status = updated.status;
+        if (data.firstPrize !== undefined) firestorePayload.firstPrize = updated.firstPrize;
+        if (data.secondPrize !== undefined) firestorePayload.secondPrize = updated.secondPrize;
+        if (data.thirdPrize !== undefined) firestorePayload.thirdPrize = updated.thirdPrize;
+        if (data.killReward !== undefined) firestorePayload.killReward = updated.killReward;
+        if (data.startTime !== undefined) {
+          firestorePayload.startTime = updated.startTime ? updated.startTime.toISOString() : null;
+        }
+
+        await adminDb.collection("tournaments").doc(updated.firestoreId).update(firestorePayload);
+      }
+
+      return json({
+        status: "updated",
+        action: "update_tournament",
+        message: `Tournament "${updated.title}" updated`,
+        data: {
+          tournament_id: updated.id,
+          firestore_id: updated.firestoreId,
+          title: updated.title,
+          game: updated.game,
+          status: updated.status,
+        },
+      });
+    }
+
+    // ========================================================
+    // DELETE TOURNAMENT  (by tournament_id or title)
+    // ========================================================
+    if (action === "delete_tournament") {
+      const row = await findTournamentRow(context);
+
+      if (!row) {
+        return json({
+          status: "not_found",
+          action: "delete_tournament",
+          message: "Tournament not found for deletion",
+        });
+      }
+
+      if (row.firestoreId) {
+        try {
+          await adminDb.collection("tournaments").doc(row.firestoreId).delete();
+        } catch (err) {
+          console.error("Firestore delete failed:", err);
+        }
+      }
+
+      await prisma.tournament.delete({ where: { id: row.id } });
+
+      return json({
+        status: "deleted",
+        action: "delete_tournament",
+        message: `Tournament "${row.title}" deleted`,
+        data: { tournament_id: row.id, title: row.title },
+      });
     }
 
     return json(

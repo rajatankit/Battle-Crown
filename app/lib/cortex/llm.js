@@ -44,6 +44,8 @@ Only use these exact AGENT_ID:action pairs (never invent new ones):
 ARIA:create_tournament
 ARIA:manage_tournament
 ARIA:read_tournament
+ARIA:update_tournament
+ARIA:delete_tournament
 ELARA:update_player_data
 ELARA:read_player_data
 LYRA:send_notification
@@ -72,6 +74,8 @@ actually have information for - never invent values.
 Supported keys per action (use only when relevant, all optional):
 - ARIA:read_tournament -> status=live|upcoming|ongoing, game=FF|BGMI
 - ARIA:get_tournament -> tournament_id=<number>
+- ARIA:update_tournament -> title="<current title, to find it>", new_title="<new name>", game=, map=, mode=, entryFee=, maxSlots=, status=, firstPrize=, secondPrize=, thirdPrize=, killReward=
+- ARIA:delete_tournament -> title="<title to find it>" (or tournament_id=<number>)
 - ELARA:read_player_data -> uid=<uid>, name=<player name, quote if it has spaces>
 - ORION:read_match_data -> status=pending, match_id=<id>
 - NOVA:read_withdrawal_status -> status=pending
@@ -81,6 +85,9 @@ Examples of tool lines WITH params:
 TOOL: ARIA:read_tournament status=live
 TOOL: ARIA:read_tournament game=FF
 TOOL: ARIA:read_tournament status=live game=BGMI
+TOOL: ARIA:update_tournament title="Fire Storm" entryFee=50
+TOOL: ARIA:update_tournament title="Fire Storm" new_title="Fire Storm 2"
+TOOL: ARIA:delete_tournament title="Fire Storm"
 TOOL: ELARA:read_player_data name="Rajat Kumar"
 TOOL: ELARA:read_player_data uid=abc123
 TOOL: ORION:read_match_data status=pending
@@ -138,6 +145,12 @@ TOOL: ARIA:create_tournament
 
 User: naya tournament banao
 TOOL: ARIA:create_tournament
+
+User: Fire Storm tournament ka entry fee 50 kar do
+TOOL: ARIA:update_tournament title="Fire Storm" entryFee=50
+
+User: Fire Storm tournament delete kar do
+TOOL: ARIA:delete_tournament title="Fire Storm"
 
 User: kitne tournament live hain
 TOOL: ARIA:read_tournament status=live
@@ -208,6 +221,8 @@ const VALID_TOOL_PAIRS = new Set([
   "ARIA:create_tournament",
   "ARIA:manage_tournament",
   "ARIA:read_tournament",
+  "ARIA:update_tournament",
+  "ARIA:delete_tournament",
   "ELARA:update_player_data",
   "ELARA:read_player_data",
   "LYRA:send_notification",
