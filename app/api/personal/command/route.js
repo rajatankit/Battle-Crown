@@ -28,6 +28,122 @@ function chatResponse(message, agent = "CORTEX") {
 }
 
 // ============================================
+// SHARED APPROVAL DETECTION
+//
+// Same logic used for both the normal LLM-driven tool chain and the
+// tournament wizard's final creation call - a bridge response either
+// carries requires_approval=true, or a VERIFICATION_REQUIRED:<level>:
+// <requestId> message (the format core/agent_controller.py sends),
+// or a looser "approve"/"approval" text match as a fallback.
+// ============================================
+function detectApproval(result) {
+  const msg = String(result?.message || result?.detail || "");
+  const verificationMatch = msg.match(/^VERIFICATION_REQUIRED:([a-zA-Z+]+):(.+)$/i);
+
+  const needsApprove =
+    result?.requires_approval === true ||
+    Boolean(verificationMatch) ||
+    msg.toLowerCase().includes("approve") ||
+    msg.toLowerCase().includes("approval");
+
+  return { needsApprove, msg, verificationMatch };
+}
+
+// Builds the exact requires_approval response shape the frontend's
+// extractApprovalRequest() in app/personal/page.js expects.
+function approvalRequiredResponse({ result, msg, verificationMatch, agentId, completed = [], remainingSteps = null }) {
+  const level = verificationMatch
+    ? verificationMatch[1].toLowerCase()
+    : msg.toLowerCase().includes("high")
+    ? "fingerprint+face"
+    : "fingerprint";
+
+  const risk = result?.risk || (level === "fingerprint+face" ? "high" : "medium");
+
+  const requestId =
+    result?.request_id ||
+    result?.data?.request_id ||
+    (verificationMatch ? verificationMatch[2] : null);
+
+  return NextResponse.json({
+    success: false,
+    requires_approval: true,
+    risk,
+    error: "approval_required",
+    result: {
+      requires_approval: true,
+      risk,
+      required_verification: level,
+      request_id: requestId,
+      agent_id: agentId,
+      message:
+        risk === "high"
+          ? "High risk action. Tap approve to confirm, Boss."
+          : "This needs your approval, Boss. Tap approve to confirm.",
+      completed_steps: completed,
+      remaining_steps: remainingSteps,
+    },
+  });
+}
+
+// ============================================
+// SPOKEN REPLY FORMATTING FOR READ/QUERY ACTIONS
+//
+// Tool execution always reports success generically ("Tool 'X'
+// executed successfully.") - the actual data the tool fetched lives
+// in result.data. This turns that raw data into something worth
+// saying out loud, per action. Returns null if there's nothing
+// specific to format (falls back to the generic message elsewhere).
+// ============================================
+function formatToolReply(step, result) {
+  const data = result?.data;
+  if (!data || typeof data !== "object") return null;
+
+  if (step.action === "read_tournament") {
+    if (Array.isArray(data.tournaments)) {
+      const list = data.tournaments;
+      if (list.length === 0) {
+        return "Boss, is criteria mein koi tournament nahi mila.";
+      }
+      const ffCount = list.filter((t) =>
+        /free\s*fire|^ff$/i.test(String(t.game || ""))
+      ).length;
+      const bgmiCount = list.filter((t) =>
+        /bgmi/i.test(String(t.game || ""))
+      ).length;
+      const preview = list
+        .slice(0, 5)
+        .map((t) => `"${t.title}" (${t.game}, ${t.status})`)
+        .join(", ");
+      const more = list.length > 5 ? " aur baaki." : ".";
+      return `Boss, ${list.length} tournament mile — FF: ${ffCount}, BGMI: ${bgmiCount}. ${preview}${more}`;
+    }
+    if (data.tournament) {
+      const t = data.tournament;
+      return `Boss, "${t.title}" — ${t.game}, status ${t.status}, ${t.joined_count ?? 0}/${t.max_slots ?? "?"} players.`;
+    }
+    if (data.status === "not_found") return "Boss, wo tournament nahi mila.";
+  }
+
+  if (step.action === "read_player_data") {
+    if (data.player) {
+      const p = data.player;
+      return `Boss, ${p.name || "player"} ki UID ${p.uid} hai, email ${p.email}, level ${p.level}, crowns ${p.crowns}.`;
+    }
+    if (Array.isArray(data.players)) {
+      if (data.players.length === 0) return "Boss, is naam se koi player nahi mila.";
+      const list = data.players
+        .map((p) => `${p.name} (UID: ${p.uid})`)
+        .join(", ");
+      return `Boss, ${data.players.length} player mile: ${list}.`;
+    }
+    if (data.status === "not_found") return "Boss, wo player nahi mila.";
+  }
+
+  return null;
+}
+
+// ============================================
 // TOURNAMENT WIZARD HANDLERS
 // ============================================
 
@@ -77,7 +193,10 @@ async function handleWizardTurn(draft, command, uid) {
       );
     }
 
-    // Create the actual tournament
+    // Create the actual tournament via the existing bridge action.
+    // Field names here MUST match what core/tools/tournament_tools.py's
+    // create_tournament() reads from context (camelCase: entryFee,
+    // maxSlots, firstPrize, secondPrize, thirdPrize, killReward, date).
     try {
       const result = await cortexDispatch({
         agentId: "ARIA",
@@ -89,63 +208,36 @@ async function handleWizardTurn(draft, command, uid) {
           title: draft.title,
           game: draft.game,
           mode: draft.mode,
-          entry_fee: draft.entryFee,
-          capacity: draft.maxSlots,
-          start_time: draft.startTime,
-          kill_reward: draft.killReward,
-          first_prize: draft.firstPrize,
-          second_prize: draft.secondPrize,
-          third_prize: draft.thirdPrize,
+          entryFee: draft.entryFee,
+          maxSlots: draft.maxSlots,
+          date: draft.startTime,
+          killReward: draft.killReward,
+          firstPrize: draft.firstPrize,
+          secondPrize: draft.secondPrize,
+          thirdPrize: draft.thirdPrize,
         },
       });
 
-      // ---------- CRITICAL FIX: Check for verification ----------
-      const msg = String(result?.message || result?.detail || "");
-      const verificationMatch = msg.match(
-        /^VERIFICATION_REQUIRED:([a-zA-Z+]+):(.+)$/i
-      );
-
-      const needsApprove =
-        result?.requires_approval === true ||
-        Boolean(verificationMatch) ||
-        msg.toLowerCase().includes("approve") ||
-        msg.toLowerCase().includes("approval");
+      // ---- Check whether this needs biometric approval BEFORE
+      // treating anything else as success/failure. create_tournament
+      // is HIGH risk, so this will normally be true on first dispatch. ----
+      const { needsApprove, msg, verificationMatch } = detectApproval(result);
 
       if (needsApprove) {
-        // Draft mat reset karo
-        const level = verificationMatch
-          ? verificationMatch[1].toLowerCase()
-          : "fingerprint+face";
-
-        const requestId =
-          result?.request_id ||
-          result?.data?.request_id ||
-          (verificationMatch ? verificationMatch[2] : null);
-
-        return NextResponse.json({
-          success: false,
-          requires_approval: true,
-          risk: "high",
-          error: "approval_required",
-          result: {
-            requires_approval: true,
-            risk: "high",
-            required_verification: level,
-            request_id: requestId,
-            agent_id: "ARIA",
-            message:
-              "High risk action. Tournament create karne se pehle identity verification chahiye, Boss.",
-            remaining_steps: [
-              {
-                agent_id: "ARIA",
-                action: "create_tournament",
-              },
-            ],
-          },
+        // The bridge has already stored our full context (title, game,
+        // fees, prizes, etc.) against this request_id on the Python
+        // side - approve_and_execute() will use that stored context
+        // directly, so we don't need to keep the draft around or send
+        // remaining_steps to resume anything. Safe to reset now.
+        await resetDraft();
+        return approvalRequiredResponse({
+          result,
+          msg,
+          verificationMatch,
+          agentId: "ARIA",
         });
       }
 
-      // Verification nahi chahiye tha → ab draft reset karo
       await resetDraft();
 
       if (result?.status === "created" || result?.success) {
@@ -156,9 +248,7 @@ async function handleWizardTurn(draft, command, uid) {
       }
 
       return chatResponse(
-        `Boss, tournament banane mein dikkat aayi: ${
-          result?.message || "unknown error"
-        }.`,
+        `Boss, tournament banane mein dikkat aayi: ${result?.message || "unknown error"}.`,
         "ARIA"
       );
     } catch (err) {
@@ -174,6 +264,7 @@ async function handleWizardTurn(draft, command, uid) {
   // ---- Stage: collecting fields ----
   const field = nextMissingField(draft);
   if (!field) {
+    // All fields filled already — shouldn't normally happen, move to duplicate check.
     return runDuplicateCheck(draft);
   }
 
@@ -189,6 +280,7 @@ async function handleWizardTurn(draft, command, uid) {
     return chatResponse(getFieldQuestion(next), "ARIA");
   }
 
+  // All fields collected — run duplicate check.
   return runDuplicateCheck(updated);
 }
 
@@ -202,12 +294,9 @@ async function runDuplicateCheck(draft) {
   });
 
   if (existing) {
-    await updateDraft({
-      stage: "duplicate_confirm",
-      duplicateTournamentId: existing.id,
-    });
+    await updateDraft({ stage: "duplicate_confirm", duplicateTournamentId: existing.id });
     return chatResponse(
-      `Boss, isi time pe already ek \( {draft.game} tournament hai — " \){existing.title}". Phir bhi banana hai?`,
+      `Boss, isi time pe already ek ${draft.game} tournament hai — "${existing.title}". Phir bhi banana hai?`,
       "ARIA"
     );
   }
@@ -220,7 +309,8 @@ async function runDuplicateCheck(draft) {
 }
 
 // ============================================
-// SINGLE-STEP DISPATCH
+// SINGLE-STEP DISPATCH (now passes through any
+// LLM-extracted params, e.g. status/game/uid/name)
 // ============================================
 
 async function runStep({ step, command, uid, approved, approvalMethod, riskHint }) {
@@ -234,17 +324,11 @@ async function runStep({ step, command, uid, approved, approvalMethod, riskHint 
       approved,
       approval_method: approvalMethod,
       risk: riskHint,
+      ...(step.params && typeof step.params === "object" ? step.params : {}),
     },
   });
 
-  const msg = String(result?.message || result?.detail || "");
-  const verificationMatch = msg.match(/^VERIFICATION_REQUIRED:([a-zA-Z+]+):(.+)$/i);
-
-  const needsApprove =
-    result?.requires_approval === true ||
-    Boolean(verificationMatch) ||
-    msg.toLowerCase().includes("approve") ||
-    msg.toLowerCase().includes("approval");
+  const { needsApprove, msg, verificationMatch } = detectApproval(result);
 
   return { result, needsApprove, msg, verificationMatch };
 }
@@ -340,7 +424,7 @@ export async function POST(request) {
       }
 
       if (llm.type === "tool") {
-        steps = [{ agent_id: llm.agent_id, action: llm.action }];
+        steps = [{ agent_id: llm.agent_id, action: llm.action, params: llm.params }];
       } else if (llm.type === "tool_multi") {
         steps = llm.steps;
       } else {
@@ -363,42 +447,21 @@ export async function POST(request) {
       });
 
       if (needsApprove && !approved) {
-        const level = verificationMatch
-          ? verificationMatch[1].toLowerCase()
-          : msg.toLowerCase().includes("high")
-          ? "fingerprint+face"
-          : "fingerprint";
-
-        const risk =
-          result?.risk || (level === "fingerprint+face" ? "high" : "medium");
-
-        const requestId =
-          result?.request_id ||
-          result?.data?.request_id ||
-          (verificationMatch ? verificationMatch[2] : null);
-
-        return NextResponse.json({
-          success: false,
-          requires_approval: true,
-          risk,
-          error: "approval_required",
-          result: {
-            requires_approval: true,
-            risk,
-            required_verification: level,
-            request_id: requestId,
-            agent_id: result?.agent || result?.agent_id || step.agent_id,
-            message:
-              risk === "high"
-                ? "High risk action. Tap approve to confirm, Boss."
-                : "This needs your approval, Boss. Tap approve to confirm.",
-            completed_steps: completed,
-            remaining_steps: steps.slice(i),
-          },
+        return approvalRequiredResponse({
+          result,
+          msg,
+          verificationMatch,
+          agentId: result?.agent || result?.agent_id || step.agent_id,
+          completed,
+          remainingSteps: steps.slice(i),
         });
       }
 
-      let stepMessage = result?.message || result?.data?.message || "Done, Boss.";
+      let stepMessage =
+        formatToolReply(step, result) ||
+        result?.message ||
+        result?.data?.message ||
+        "Done, Boss.";
 
       if (
         typeof stepMessage === "string" &&

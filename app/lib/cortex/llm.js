@@ -64,6 +64,28 @@ SENTINEL:security_action
 SENTINEL:security_scan
 SENTINEL:read_security_logs
 
+2b) Some actions need extra details from what Boss said. When they do, append
+them on the SAME line as space-separated key=value pairs, right after the
+action. If a value has spaces, wrap it in double quotes. Only include keys you
+actually have information for - never invent values.
+
+Supported keys per action (use only when relevant, all optional):
+- ARIA:read_tournament -> status=live|upcoming|ongoing, game=FF|BGMI
+- ARIA:get_tournament -> tournament_id=<number>
+- ELARA:read_player_data -> uid=<uid>, name=<player name, quote if it has spaces>
+- ORION:read_match_data -> status=pending, match_id=<id>
+- NOVA:read_withdrawal_status -> status=pending
+- LYRA:send_notification -> player_id=<id>, title="<title>", message="<message>"
+
+Examples of tool lines WITH params:
+TOOL: ARIA:read_tournament status=live
+TOOL: ARIA:read_tournament game=FF
+TOOL: ARIA:read_tournament status=live game=BGMI
+TOOL: ELARA:read_player_data name="Rajat Kumar"
+TOOL: ELARA:read_player_data uid=abc123
+TOOL: ORION:read_match_data status=pending
+TOOL: NOVA:read_withdrawal_status status=pending
+
 3) Normal chat -> reply with only the spoken answer. No labels, no JSON.
 
 4) MEMORY — Boss may ask you to remember something in MANY different word orders
@@ -117,8 +139,23 @@ TOOL: ARIA:create_tournament
 User: naya tournament banao
 TOOL: ARIA:create_tournament
 
+User: kitne tournament live hain
+TOOL: ARIA:read_tournament status=live
+
+User: FF ke kitne tournament hain
+TOOL: ARIA:read_tournament game=FF
+
+User: BGMI ke live tournament dikhao
+TOOL: ARIA:read_tournament status=live game=BGMI
+
 User: wallet balance
 TOOL: NOVA:read_wallet
+
+User: pending withdrawal dikhao
+TOOL: NOVA:read_withdrawal_status status=pending
+
+User: pending screenshots dikhao
+TOOL: ORION:read_match_data status=pending
 
 User: room bana do
 TOOL: VAULT:store_room_data
@@ -217,6 +254,23 @@ function extractMemoryLines(text) {
   return { text: remaining.join("\n").trim(), memoryFacts };
 }
 
+// Parses "key=value key2="quoted value"" trailing text into an object.
+// Values wrapped in double quotes may contain spaces; unquoted values
+// stop at the next whitespace.
+function parseInlineParams(rest) {
+  const params = {};
+  if (!rest || !rest.trim()) return params;
+
+  const regex = /([a-zA-Z_]+)=("([^"]*)"|\S+)/g;
+  let match;
+  while ((match = regex.exec(rest)) !== null) {
+    const key = match[1];
+    const value = match[3] !== undefined ? match[3] : match[2];
+    params[key] = value;
+  }
+  return params;
+}
+
 function parseLLMOutput(raw) {
   let text = String(raw || "")
     .replace(/```/g, "")
@@ -237,8 +291,8 @@ function parseLLMOutput(raw) {
     };
   }
 
-  // TOOL: AGENT_ID:action  (one or more lines)
-  const toolLineRegex = /^TOOL\s*:\s*([A-Z]+)\s*:\s*([a-z_]+)/i;
+  // TOOL: AGENT_ID:action [key=value ...]  (one or more lines)
+  const toolLineRegex = /^TOOL\s*:\s*([A-Z]+)\s*:\s*([a-z_]+)(.*)$/i;
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
   const steps = [];
   let sawUnknownTool = false;
@@ -252,7 +306,7 @@ function parseLLMOutput(raw) {
     const pairKey = `${agentId}:${action}`;
 
     if (VALID_TOOL_PAIRS.has(pairKey)) {
-      steps.push({ agent_id: agentId, action });
+      steps.push({ agent_id: agentId, action, params: parseInlineParams(m[3]) });
     } else {
       sawUnknownTool = true;
     }
@@ -268,6 +322,7 @@ function parseLLMOutput(raw) {
         type: "tool",
         agent_id: steps[0].agent_id,
         action: steps[0].action,
+        params: steps[0].params,
         memoryFacts,
       };
     }
