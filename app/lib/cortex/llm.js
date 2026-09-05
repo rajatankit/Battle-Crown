@@ -79,6 +79,8 @@ Supported keys per action (use only when relevant, all optional):
 - ELARA:read_player_data -> uid=<uid>, name=<player name, quote if it has spaces>
 - ORION:read_match_data -> status=pending, match_id=<id>
 - NOVA:read_withdrawal_status -> status=pending
+- SENTINEL:read_security_logs -> severity=low|medium|high, type=<alert type>
+- SENTINEL:security_scan -> (no params needed)
 - LYRA:send_notification -> player_id=<id>, title="<title>", message="<message>"
 
 Examples of tool lines WITH params:
@@ -169,6 +171,12 @@ TOOL: NOVA:read_withdrawal_status status=pending
 
 User: pending screenshots dikhao
 TOOL: ORION:read_match_data status=pending
+
+User: security check karo sab theek hai kya
+TOOL: SENTINEL:security_scan
+
+User: high severity alerts dikhao
+TOOL: SENTINEL:read_security_logs severity=high
 
 User: room bana do
 TOOL: VAULT:store_room_data

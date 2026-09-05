@@ -182,6 +182,26 @@ function formatToolReply(step, result) {
     }
   }
 
+  if (step.action === "read_security_logs") {
+    if (Array.isArray(data.alerts)) {
+      const list = data.alerts;
+      if (list.length === 0) return "Boss, koi alert nahi hai, sab clean hai.";
+      const preview = list
+        .slice(0, 5)
+        .map((a) => `${a.severity} - ${a.title}`)
+        .join(", ");
+      const more = list.length > 5 ? " aur baaki." : ".";
+      return `Boss, ${list.length} alert hain: ${preview}${more}`;
+    }
+  }
+
+  if (step.action === "security_scan") {
+    if (typeof data.unacknowledged_total === "number") {
+      if (data.clean) return "Boss, sab clean hai, koi pending alert nahi.";
+      return `Boss, ${data.unacknowledged_total} unacknowledged alert hain — High: ${data.high}, Medium: ${data.medium}, Low: ${data.low}.`;
+    }
+  }
+
   return null;
 }
 
