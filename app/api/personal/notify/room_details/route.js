@@ -33,7 +33,7 @@ export async function POST(req) {
     const title = `${tournamentTitle || "Tournament"} — Room Details`;
     const message = `Room ID: ${roomId} | Password: ${roomPassword}`;
 
-    const result = await notifyTargetedUsers({ userIds, title, message, type: "room_details" });
+    const result = await notifyTargetedUsers({ userIds, title, message });
 
     return NextResponse.json({
       success: true,

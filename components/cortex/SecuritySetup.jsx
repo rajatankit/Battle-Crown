@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { startRegistration } from "@simplewebauthn/browser";
 import PatternLock from "./PatternLock";
 
@@ -9,6 +9,12 @@ export default function SecuritySetup({ authToken, onComplete }) {
   const [settingPattern, setSettingPattern] = useState(false);
   const [biometricDone, setBiometricDone] = useState(false);
   const [patternDone, setPatternDone] = useState(false);
+
+  const [voiceDone, setVoiceDone] = useState(false);
+  const [recordingVoice, setRecordingVoice] = useState(false);
+  const [voiceSampleCount, setVoiceSampleCount] = useState(0);
+
+  const voiceSamplesRef = useRef([]);
 
   const headers = () => {
     const h = { "Content-Type": "application/json" };
@@ -62,17 +68,82 @@ export default function SecuritySetup({ authToken, onComplete }) {
       setPatternDone(true);
       setStatus("Pattern saved.");
       setSettingPattern(false);
-
-      if (biometricDone || true) {
-        // parent will re-check status; both needed for ready
-        if (typeof onComplete === "function") {
-          onComplete();
-        }
-      }
     } catch (err) {
       setStatus(`Error: ${err instanceof Error ? err.message : "unknown"}`);
     }
   };
+
+  // --------------------------------------------------
+  // VOICE ENROLLMENT — record 3 samples, then submit
+  // --------------------------------------------------
+
+  const recordOneSample = (durationMs = 3000) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const recorder = new MediaRecorder(stream);
+        const chunks = [];
+
+        recorder.ondataavailable = (e) => chunks.push(e.data);
+        recorder.onstop = () => {
+          stream.getTracks().forEach((t) => t.stop());
+          resolve(new Blob(chunks, { type: "audio/webm" }));
+        };
+        recorder.onerror = (e) => reject(e.error || new Error("Recording failed"));
+
+        recorder.start();
+        setTimeout(() => recorder.stop(), durationMs);
+      } catch (err) {
+        reject(err);
+      }
+    });
+  };
+
+  const startVoiceEnrollment = async () => {
+    setRecordingVoice(true);
+    setVoiceSampleCount(0);
+    voiceSamplesRef.current = [];
+    setStatus("");
+
+    try {
+      for (let i = 1; i <= 3; i++) {
+        setStatus(`Sample ${i}/3 — 3 second bolo (jaise "cortex unlock")...`);
+        const blob = await recordOneSample(3000);
+        voiceSamplesRef.current.push(blob);
+        setVoiceSampleCount(i);
+      }
+
+      setStatus("Voice samples upload ho rahi hain...");
+
+      const formData = new FormData();
+      voiceSamplesRef.current.forEach((blob, idx) => {
+        formData.append("samples", blob, `sample-${idx}.webm`);
+      });
+
+      const authHeaders = {};
+      if (authToken) authHeaders.Authorization = `Bearer ${authToken}`;
+
+      const res = await fetch("/api/cortex/security/voice/enroll", {
+        method: "POST",
+        headers: authHeaders,
+        body: formData,
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data?.error || "Voice enrollment failed.");
+      }
+
+      setVoiceDone(true);
+      setStatus("Voice profile enroll ho gayi.");
+    } catch (err) {
+      setStatus(`Error: ${err instanceof Error ? err.message : "unknown"}`);
+    } finally {
+      setRecordingVoice(false);
+    }
+  };
+
+  const allDone = biometricDone && patternDone && voiceDone;
 
   return (
     <div
@@ -94,7 +165,7 @@ export default function SecuritySetup({ authToken, onComplete }) {
           CORTEX SECURITY SETUP
         </h2>
         <p className="text-xs text-gray-500">
-          Ek baar setup karo — fingerprint/face + pattern. Uske baad high-risk commands verify hongi.
+          Ek baar setup karo — fingerprint/face + pattern + voice. Uske baad high-risk commands verify hongi.
         </p>
 
         <button
@@ -102,7 +173,7 @@ export default function SecuritySetup({ authToken, onComplete }) {
           className="w-full rounded-full py-3"
           style={{ border: "1px solid #ff2a10", color: "#ff6a55" }}
         >
-          {biometricDone ? "Biometric ? Registered" : "1. Register Fingerprint / Face"}
+          {biometricDone ? "Biometric ✓ Registered" : "1. Register Fingerprint / Face"}
         </button>
 
         {!settingPattern ? (
@@ -111,15 +182,28 @@ export default function SecuritySetup({ authToken, onComplete }) {
             className="w-full rounded-full py-3"
             style={{ border: "1px solid #ff2a10", color: "#ff6a55" }}
           >
-            {patternDone ? "Pattern ? Saved" : "2. Set Pattern Lock"}
+            {patternDone ? "Pattern ✓ Saved" : "2. Set Pattern Lock"}
           </button>
         ) : (
           <PatternLock onComplete={savePattern} label="Set your pattern" />
         )}
 
+        <button
+          onClick={startVoiceEnrollment}
+          disabled={recordingVoice}
+          className="w-full rounded-full py-3 disabled:opacity-50"
+          style={{ border: "1px solid #ff2a10", color: "#ff6a55" }}
+        >
+          {voiceDone
+            ? "Voice ✓ Enrolled"
+            : recordingVoice
+            ? `Recording... (${voiceSampleCount}/3)`
+            : "3. Enroll Voice (3 samples)"}
+        </button>
+
         {status && <p className="text-xs text-gray-400">{status}</p>}
 
-        {biometricDone && patternDone && (
+        {allDone && (
           <button
             onClick={() => onComplete && onComplete()}
             className="w-full rounded-full py-3 font-semibold"

@@ -72,6 +72,11 @@ function detectPlayerListIntent(text) {
   return /(kis\s*kis|kaun\s*kaun|players?\s*(dikhao|list))/.test(t) && /join/.test(t);
 }
 
+function detectMemoryQueryIntent(text) {
+  const t = text.toLowerCase();
+  return /\b(kal|pichli baar|pehle maine|yaad hai|kya baat hui|kya bola tha|kya kaha tha)\b/.test(t);
+}
+
 export default function PersonalAssistantPage() {
   const [state, setState] = useState({
     loading: true,
@@ -194,6 +199,7 @@ export default function PersonalAssistantPage() {
       if (newPhase >= 6) {
         setReply("CORTEX ACTIVATED.");
         speak("CORTEX ACTIVATED.");
+        announcePendingAlerts();
         return true;
       }
       return false;
@@ -377,6 +383,18 @@ export default function PersonalAssistantPage() {
   }
 
   // --------------------------------------------------
+  // BARGE-IN: stop CORTEX mid-sentence (Level 1 — tap-to-interrupt)
+  // --------------------------------------------------
+
+  function interruptSpeech() {
+    speechQueueRef.current = [];
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current = null;
+    }
+    speakingRef.current = false;
+  }
+  // --------------------------------------------------
   // CORE TAP
   // --------------------------------------------------
 
@@ -385,6 +403,9 @@ export default function PersonalAssistantPage() {
       return;
     }
     if (unlocked && phase < 6) return;
+
+    // Barge-in: agar CORTEX abhi bol raha hai, turant chup karo
+    interruptSpeech();
 
     setTranscript("");
     setReply("");
@@ -608,6 +629,8 @@ export default function PersonalAssistantPage() {
       speak("Systems locked.");
       return;
     }
+
+    logMessage("user", commandText);
 
     // ---- Slide gallery active: user is picking numbers ----
     if (slideGallery) {
@@ -949,6 +972,30 @@ export default function PersonalAssistantPage() {
       return;
     }
 
+    if (detectMemoryQueryIntent(text)) {
+      setBusy(true);
+      try {
+        const res = await fetch("/api/cortex/conversation/recall", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${idTokenRef.current}`,
+          },
+          body: JSON.stringify({ question: commandText.trim() }),
+        });
+        const payload = await res.json();
+        const answer = payload.success ? payload.answer : "Boss, memory check karte waqt error aaya.";
+        setReply(answer);
+        speak(answer);
+        logMessage("cortex", answer);
+      } catch {
+        setReply("Error aaya memory check karte waqt.");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     // ---- Pending yes/no offer after tournament creation ----
     if (slidesOfferRef.current) {
       const answer = parseYesNo(text);
@@ -1067,6 +1114,7 @@ export default function PersonalAssistantPage() {
 
       setReply(clean);
       speak(clean);
+      logMessage("cortex", clean);
     } catch (error) {
       setReply(`Error: ${error?.message || "Something went wrong."}`);
       speak("Something went wrong, Boss.");
@@ -1146,6 +1194,42 @@ export default function PersonalAssistantPage() {
     } catch {
       setSecurityReady(false);
     }
+  }
+  async function announcePendingAlerts() {
+    try {
+      const res = await fetch("/api/cortex/alerts/pending", {
+        headers: { Authorization: `Bearer ${idTokenRef.current}` },
+      });
+      const payload = await res.json();
+
+      if (!payload.success || payload.count === 0) return;
+
+      const highCount = payload.alerts.filter((a) => a.severity === "high").length;
+      const topAlert = payload.alerts[0];
+
+      const summary =
+        payload.count === 1
+          ? `Boss, ek pending alert hai: ${topAlert.title}.`
+          : `Boss, ${payload.count} pending alerts hain, jinme ${highCount} high priority hain. Sabse zaroori: ${topAlert.title}.`;
+
+      setTimeout(() => {
+        setReply(summary);
+        speak(summary);
+      }, 4000); // "CORTEX ACTIVATED" ke bolne ke baad thoda gap
+    } catch {
+      // silent fail — greeting fail hone se activation nahi rukna chahiye
+    }
+  }
+  function logMessage(role, message) {
+    if (!idTokenRef.current || !message?.trim()) return;
+    fetch("/api/cortex/conversation/log", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idTokenRef.current}`,
+      },
+      body: JSON.stringify({ role, message: message.trim() }),
+    }).catch(() => {});
   }
 
   // --------------------------------------------------

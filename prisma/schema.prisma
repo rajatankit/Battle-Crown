@@ -56,6 +56,8 @@ model Tournament {
   roomPassword String?
   startTime    DateTime? @db.Timestamp(6)
   reminderSent Boolean   @default(false)
+  lowJoinAlertSent Boolean  @default(false)
+  roomMissingAlerted Boolean @default(false)
 
   @@map("tournaments")
 }
@@ -213,6 +215,8 @@ model CortexSecurity {
   // Custom pattern lock (used for HIGH risk actions)
   patternHash       String?
   patternSalt       String?
+  voiceProfile      String?
+  voiceEnrolledAt   DateTime?
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -268,4 +272,14 @@ model TournamentDraft {
   thirdPrize             Float?
   duplicateTournamentId  Int?
   updatedAt              DateTime  @updatedAt
+}
+
+model ConversationLog {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  role      String   // "user" | "cortex"
+  message   String
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }

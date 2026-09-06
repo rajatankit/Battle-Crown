@@ -41,7 +41,6 @@ export async function GET(req) {
           userIds: [ADMIN_USER_ID],
           title: `Reminder: ${t.title}`,
           message,
-          type: "reminder",
         });
       }
 

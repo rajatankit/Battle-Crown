@@ -115,29 +115,67 @@ export async function GET(request) {
       createdAlerts.push(alert);
     }
 
-    // ---- 4. Tournament reminders (30 min before start) ----
+    // ---- 4. Tournament starting soon (30 min before) ----
     const soon = new Date(now.getTime() + 30 * 60 * 1000);
     const upcomingTournaments = await prisma.tournament.findMany({
       where: {
-        reminderSent: false,
-        startTime: { gt: now, lte: soon },
+        startTime: { gt: now, lte: soon, gte: now },
       },
     });
+
     for (const t of upcomingTournaments) {
-      const alert = await prisma.alert.create({
-        data: {
-          type: "tournament",
-          severity: "medium",
-          title: `Tournament starting soon: ${t.title}`,
-          message: `${t.title} (${t.game}) 30 min mein start hone wala hai.`,
-          refId: String(t.id),
-        },
+      // 4a. Generic "starting soon" ping
+      const soonAlreadyAlerted = await prisma.alert.findFirst({
+        where: { type: "tournament_soon", refId: String(t.id) },
       });
-      await prisma.tournament.update({
-        where: { id: t.id },
-        data: { reminderSent: true },
-      });
-      createdAlerts.push(alert);
+      if (!soonAlreadyAlerted) {
+        const alert = await prisma.alert.create({
+          data: {
+            type: "tournament_soon",
+            severity: "medium",
+            title: `Tournament starting soon: ${t.title}`,
+            message: `${t.title} (${t.game}) 30 min mein start hone wala hai. ${t.joinedCount} players joined.`,
+            refId: String(t.id),
+          },
+        });
+        createdAlerts.push(alert);
+      }
+
+      // 4b. Low players warning (agar 10 se kam joined hain)
+      if (t.joinedCount < 10 && !t.lowJoinAlertSent) {
+        const alert = await prisma.alert.create({
+          data: {
+            type: "low_players",
+            severity: "medium",
+            title: `Low players: ${t.title}`,
+            message: `Boss, ${t.title} mein sirf ${t.joinedCount} players joined hain aur 30 min mein start hai. Promote kar lo shayad.`,
+            refId: String(t.id),
+          },
+        });
+        await prisma.tournament.update({
+          where: { id: t.id },
+          data: { lowJoinAlertSent: true },
+        });
+        createdAlerts.push(alert);
+      }
+
+      // 4c. Room details missing warning (agar roomId set hi nahi hua)
+      if (!t.roomId && !t.roomMissingAlerted) {
+        const alert = await prisma.alert.create({
+          data: {
+            type: "room_missing",
+            severity: "high",
+            title: `Room details missing: ${t.title}`,
+            message: `Boss, ${t.title} 30 min mein start hai aur room ID/password abhi tak nahi bheja. Jaldi bhejo.`,
+            refId: String(t.id),
+          },
+        });
+        await prisma.tournament.update({
+          where: { id: t.id },
+          data: { roomMissingAlerted: true },
+        });
+        createdAlerts.push(alert);
+      }
     }
 
     // ---- Send notifications for everything just created ----

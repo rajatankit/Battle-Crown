@@ -45,7 +45,6 @@ export async function POST(req) {
       userIds: [user.id],
       title: title || "Battle Crown",
       message,
-      type: "personal",
     });
 
     return NextResponse.json({
