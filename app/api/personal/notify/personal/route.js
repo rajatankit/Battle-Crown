@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../../../lib/prisma";
-import { notifyTargetedUsers } from "../../../../../lib/notifications/notifyUsers";
+import { prisma } from "../../../../lib/prisma";
+import { notifyTargetedUsers } from "../../../../lib/notifications/notifyUsers";
 
 export async function POST(req) {
   try {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../../../lib/prisma";
-import { getJoinedUserIds } from "../../../../../lib/notifications/getTournamentPlayers";
+import { prisma } from "../../../../lib/prisma";
+import { getJoinedUserIds } from "../../../../lib/notifications/getTournamentPlayers";
 
 function normalizeGameHint(text) {
   const t = text.toLowerCase();

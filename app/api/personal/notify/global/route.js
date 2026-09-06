@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { notifyGlobal } from "../../../../../lib/notifications/notifyUsers";
+import { notifyGlobal } from "../../../../lib/notifications/notifyUsers";
 
 export async function POST(req) {
   try {

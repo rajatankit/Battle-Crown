@@ -1,5 +1,5 @@
 import { prisma } from "../prisma";
-import { sendPushToUsers } from "../sendPush";
+import { sendPushToUsers } from "./SendPush";
 
 // Targeted: room details ya personal message — har user ki apni row
 export async function notifyTargetedUsers({ userIds, title, message, type }) {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../../../lib/prisma";
-import { notifyTargetedUsers } from "../../../../../lib/notifications/notifyUsers";
-import { getJoinedUserIds } from "../../../../../lib/notifications/getTournamentPlayers";
+import { prisma } from "../../../../lib/prisma";
+import { notifyTargetedUsers } from "../../../../lib/notifications/notifyUsers";
+import { getJoinedUserIds } from "../../../../lib/notifications/getTournamentPlayers";
 
 export async function POST(req) {
   try {

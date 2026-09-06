@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../../lib/prisma";
-import { notifyTargetedUsers } from "../../../../lib/notifications/notifyUsers";
-import { getJoinedUserIds } from "../../../../lib/notifications/getTournamentPlayers";
+import { prisma } from "../../../lib/prisma";
+import { notifyTargetedUsers } from "../../../lib/notifications/notifyUsers";
+import { getJoinedUserIds } from "../../../lib/notifications/getTournamentPlayers";
 
 const ADMIN_USER_ID = process.env.ADMIN_USER_ID ? parseInt(process.env.ADMIN_USER_ID, 10) : null;
 

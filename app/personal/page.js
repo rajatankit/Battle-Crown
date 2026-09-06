@@ -99,6 +99,7 @@ export default function PersonalAssistantPage() {
 
   // Player list display: { title, players: [{ign,uid,whatsapp_number}] } | null
   const [playerList, setPlayerList] = useState(null);
+  const [tournamentPicker, setTournamentPicker] = useState(null);   // 👈 YE NAYI LINE
 
   const recognitionRef = useRef(null);
   const idTokenRef = useRef(null);
@@ -485,6 +486,90 @@ export default function PersonalAssistantPage() {
   }
 
   // --------------------------------------------------
+  // TOURNAMENT PICKER (tap-to-select, naam bolne ki zaroorat nahi)
+  // --------------------------------------------------
+
+  async function loadActiveTournaments(purpose) {
+    try {
+      const res = await fetch("/api/personal/tournament/active");
+      const payload = await res.json();
+
+      if (!payload.success || payload.tournaments.length === 0) {
+        setTournamentPicker(null);
+        return;
+      }
+
+      setTournamentPicker({ purpose, tournaments: payload.tournaments });
+    } catch {
+      setTournamentPicker(null);
+    }
+  }
+
+  async function selectTournamentFromPicker(t) {
+    setTournamentPicker(null);
+    notifyFlowRef.current = null;
+
+    if (t.purpose === "room_details") {
+      setBusy(true);
+      try {
+        const res = await fetch("/api/personal/tournament/players", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tournamentId: t.firestoreId }),
+        });
+        const payload = await res.json();
+        const playerCount = payload.success ? payload.players.length : 0;
+
+        notifyFlowRef.current = {
+          type: "room_details",
+          step: "await_roomid",
+          tournamentPk: t.id,
+          tournamentId: t.firestoreId,
+          tournamentTitle: t.title,
+          playerCount,
+        };
+        const msg = `${t.title} mein ${playerCount} players hain. Room ID boliye.`;
+        setReply(msg);
+        speak(msg);
+      } catch {
+        setReply("Error aaya players count nikalte waqt.");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
+    if (t.purpose === "player_list") {
+      setBusy(true);
+      try {
+        const res = await fetch("/api/personal/tournament/players", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tournamentId: t.firestoreId }),
+        });
+        const payload = await res.json();
+
+        if (!payload.success || payload.players.length === 0) {
+          setReply(`${t.title} mein abhi koi player nahi joina.`);
+          speak("Koi player nahi mila.");
+          setBusy(false);
+          return;
+        }
+
+        setPlayerList({ title: t.title, players: payload.players });
+        const msg = `${t.title} mein ${payload.players.length} players joined hain.`;
+        setReply(msg);
+        speak(msg);
+      } catch {
+        setReply("Error aaya players dhoondhte waqt.");
+      } finally {
+        setBusy(false);
+      }
+    }
+  }
+
+  
+  // --------------------------------------------------
   // COMMAND PROCESSING
   // --------------------------------------------------
 
@@ -836,8 +921,9 @@ export default function PersonalAssistantPage() {
     // ---- Trigger new notify flows ----
     if (detectRoomDetailsIntent(text)) {
       notifyFlowRef.current = { type: "room_details", step: "await_title" };
-      setReply("Boss, kis tournament ke liye? Title boliye.");
-      speak("Kis tournament ke liye, title boliye.");
+      loadActiveTournaments("room_details");
+      setReply("Boss, kis tournament ke liye? Title boliye ya screen se tap kar do.");
+      speak("Kis tournament ke liye, title boliye ya tap kar do.");
       return;
     }
 
@@ -857,8 +943,9 @@ export default function PersonalAssistantPage() {
 
     if (detectPlayerListIntent(text)) {
       notifyFlowRef.current = { type: "player_list", step: "await_title" };
-      setReply("Boss, kis tournament ke players dikhau? Title boliye.");
-      speak("Kis tournament ke players dikhau?");
+      loadActiveTournaments("player_list");
+      setReply("Boss, kis tournament ke players dikhau? Title boliye ya tap kar do.");
+      speak("Kis tournament ke players dikhau, ya tap kar do.");
       return;
     }
 
@@ -1154,7 +1241,7 @@ export default function PersonalAssistantPage() {
         </p>
       </div>
 
-      {!slideGallery && !playerList && (
+      {!slideGallery && !playerList && !tournamentPicker && (
         <button
           type="button"
           onClick={handleCoreTap}
@@ -1234,11 +1321,49 @@ export default function PersonalAssistantPage() {
             ))}
           </div>
           <button
+        
             type="button"
             onClick={() => setPlayerList(null)}
             className="mt-3 w-full rounded-full py-2 text-xs tracking-widest border border-red-600 text-red-400"
           >
             CLOSE
+          </button>
+        </div>
+      )}
+
+      {tournamentPicker && (
+        <div className="relative z-20 w-full max-w-sm px-6">
+          <p className="text-red-400 text-xs tracking-widest mb-2 text-center">
+            TAP TO SELECT
+          </p>
+          <div className="max-h-80 overflow-y-auto space-y-2">
+            {tournamentPicker.tournaments.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() =>
+                  selectTournamentFromPicker({ ...t, purpose: tournamentPicker.purpose })
+                }
+                className="w-full text-left border border-red-900 rounded p-2 text-xs text-gray-200 hover:bg-red-950/40"
+              >
+                <p className="text-red-500 font-semibold">{t.title}</p>
+                <p>
+                  {t.game} •{" "}
+                  {t.startTime ? new Date(t.startTime).toLocaleString() : "No time set"}
+                </p>
+                <p className="text-gray-400">{t.joinedCount} joined</p>
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setTournamentPicker(null);
+              notifyFlowRef.current = null;
+            }}
+            className="mt-3 w-full rounded-full py-2 text-xs tracking-widest border border-red-600 text-red-400"
+          >
+            CANCEL
           </button>
         </div>
       )}
