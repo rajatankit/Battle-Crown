@@ -21,57 +21,9 @@ function normalizeGameKey(gameRaw) {
 }
 
 function parseYesNo(text) {
-  const t = String(text || "")
-    .toLowerCase()
-    .replace(/[.,!?;:'"؟۔]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (!t) return null;
-
-  // \~50 flexible yes phrases (English + Hindi + Hinglish)
-  const yesList = [
-    "yes", "yeah", "yep", "yup", "ya", "yea", "yesh",
-    "ok", "okay", "okey", "sure", "surely", "alright", "all right",
-    "of course", "go ahead", "do it", "please do", "confirm", "confirmed",
-    "affirmative", "right", "correct",
-    "haan", "han", "haa", "ha", "hji", "hanji", "haanji",
-    "ha ji", "han ji", "haan ji", "ji", "ji haan", "ji han",
-    "theek", "theek hai", "thik", "thik hai", "sahi", "sahi hai",
-    "bilkul", "bilkul sahi", "pakka", "pakka hai",
-    "kar do", "karo", "kar dena", "laga do", "lagao", "laga dena",
-    "ho jaaye", "ho jaye", "done karo", "yes karo", "haan karo",
-  ];
-
-  // \~50 flexible no phrases (English + Hindi + Hinglish)
-  const noList = [
-    "no", "nope", "nah", "na", "not", "don't", "dont", "do not",
-    "cancel", "stop", "never", "negative", "skip", "later",
-    "no need", "not now", "leave it", "forget it", "no thanks", "no thank you",
-    "nahi", "nahin", "nhi", "nahii", "nahin", "naa",
-    "nahi hai", "nahin hai", "nhi hai",
-    "mat", "mat karo", "mat kar", "mat laga", "mat lagao", "mat lagana",
-    "nako", "na re", "nahi chahiye", "nahin chahiye", "nhi chahiye",
-    "zaroorat nahi", "zarurat nahi", "zaroorat nahin",
-    "baad mein", "baad me", "baad", "rehne do", "rehnedo", "rehne de",
-    "chhodo", "chhod do", "chhod dena", "leave", "no slides",
-    "cancel karo", "cancel it", "nahi bhai", "nahin bhai", "nhi bhai",
-  ];
-
-  const sortedYes = [...yesList].sort((a, b) => b.length - a.length);
-  const sortedNo = [...noList].sort((a, b) => b.length - a.length);
-
-  for (const p of sortedYes) {
-    if (t === p || t.includes(p)) return "yes";
-  }
-  for (const p of sortedNo) {
-    if (t === p || t.includes(p)) return "no";
-  }
-
-  // single-letter fallback (speech sometimes returns just y / n)
-  if (/^(y|h)$/.test(t)) return "yes";
-  if (/^(n)$/.test(t)) return "no";
-
+  const t = text.toLowerCase();
+  if (/\b(haan|han|ha|yes|yep|ok|okay)\b/.test(t)) return "yes";
+  if (/\b(nahi|nako|no|nope|cancel)\b/.test(t)) return "no";
   return null;
 }
 
@@ -94,6 +46,30 @@ function detectSlidesIntent(text) {
   if (!/(lagao|laga do|add|attach|select|dikhao|lagana)/.test(t)) return null;
   const game = t.includes("bgmi") ? "bgmi" : "ff";
   return { game };
+}
+
+// --------------------------------------------------
+// NOTIFICATION FEATURE HELPERS
+// --------------------------------------------------
+
+function detectRoomDetailsIntent(text) {
+  const t = text.toLowerCase();
+  return /room\s*(id|detail|details)/.test(t) || (/room/.test(t) && /password/.test(t));
+}
+
+function detectGlobalMsgIntent(text) {
+  const t = text.toLowerCase();
+  return /\b(sabko|sab players|sabhi players|global message|sab logo ko)\b/.test(t);
+}
+
+function detectPersonalMsgIntent(text) {
+  const t = text.toLowerCase();
+  return /\b(ko message|ko bhejo|personal message)\b/.test(t) && !detectGlobalMsgIntent(text);
+}
+
+function detectPlayerListIntent(text) {
+  const t = text.toLowerCase();
+  return /(kis\s*kis|kaun\s*kaun|players?\s*(dikhao|list))/.test(t) && /join/.test(t);
 }
 
 export default function PersonalAssistantPage() {
@@ -121,6 +97,9 @@ export default function PersonalAssistantPage() {
   // Slides gallery: { tournamentId, firestoreId, title, game, options: [{index,url}] } | null
   const [slideGallery, setSlideGallery] = useState(null);
 
+  // Player list display: { title, players: [{ign,uid,whatsapp_number}] } | null
+  const [playerList, setPlayerList] = useState(null);
+
   const recognitionRef = useRef(null);
   const idTokenRef = useRef(null);
   const unlockedRef = useRef(false);
@@ -134,6 +113,15 @@ export default function PersonalAssistantPage() {
   // "slides lagao" flow, when we don't already have a target).
   // { game } | null
   const pendingSlidesTitleAskRef = useRef(null);
+
+  // Multi-step notify flow (room details / global msg / personal msg / player list)
+  // { type, step, ...collectedData } | null
+  const notifyFlowRef = useRef(null);
+
+  // TTS queue state (server-side Edge TTS, streamed sentence-by-sentence)
+  const speechQueueRef = useRef([]);
+  const speakingRef = useRef(false);
+  const currentAudioRef = useRef(null);
 
   useEffect(() => {
     unlockedRef.current = unlocked;
@@ -336,10 +324,6 @@ export default function PersonalAssistantPage() {
   // SPEAK (server TTS: hi-IN-SwaraNeural, streamed sentence-by-sentence)
   // --------------------------------------------------
 
-  const speechQueueRef = useRef([]);
-  const speakingRef = useRef(false);
-  const currentAudioRef = useRef(null);
-
   function splitIntoSentences(text) {
     const cleaned = String(text).trim();
     if (!cleaned) return [];
@@ -357,8 +341,6 @@ export default function PersonalAssistantPage() {
 
     try {
       const audio = new Audio(`/api/tts?text=${encodeURIComponent(next)}`);
-      audio.setAttribute("playsinline", "true");
-      audio.volume = 1;
       currentAudioRef.current = audio;
 
       await new Promise((resolve) => {
@@ -398,22 +380,6 @@ export default function PersonalAssistantPage() {
   // --------------------------------------------------
 
   function handleCoreTap() {
-    // Unlock audio on first user gesture (mobile browsers)
-    try {
-      const unlock = new Audio(
-        "/api/tts?text=" + encodeURIComponent(" ")
-      );
-      unlock.volume = 0.01;
-      unlock
-        .play()
-        .then(() => {
-          unlock.pause();
-        })
-        .catch(() => {});
-    } catch {
-      // ignore
-    }
-
     if (!recognitionRef.current || listening || busy || verification) {
       return;
     }
@@ -591,7 +557,7 @@ export default function PersonalAssistantPage() {
         slidesOfferRef.current = null;
 
         if (payload.success) {
-          const msg = `Slides laga di, Boss — "${title}" par \( {urls.length} slide \){urls.length > 1 ? "s" : ""} live hain.`;
+          const msg = `Slides laga di, Boss — "${title}" par ${urls.length} slide${urls.length > 1 ? "s" : ""} live hain.`;
           setReply(msg);
           speak(msg);
         } else {
@@ -604,6 +570,295 @@ export default function PersonalAssistantPage() {
       } finally {
         setBusy(false);
       }
+      return;
+    }
+
+    // ---- Multi-step notify flow (room details / global / personal / player list) ----
+    if (notifyFlowRef.current) {
+      const flow = notifyFlowRef.current;
+
+      // ROOM DETAILS flow
+      if (flow.type === "room_details") {
+        if (flow.step === "await_title") {
+          setBusy(true);
+          try {
+            const res = await fetch("/api/personal/tournament/resolve", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                exactTitle: commandText.trim(),
+                spokenText: commandText.trim(),
+              }),
+            });
+            const payload = await res.json();
+
+            if (!payload.success) {
+              notifyFlowRef.current = null;
+              setReply(`Boss, "${commandText.trim()}" naam ka tournament nahi mila.`);
+              speak("Tournament nahi mila.");
+              setBusy(false);
+              return;
+            }
+
+            notifyFlowRef.current = {
+              type: "room_details",
+              step: "await_roomid",
+              tournamentPk: payload.tournamentPk,
+              tournamentId: payload.tournamentId,
+              tournamentTitle: payload.title,
+              playerCount: payload.playerCount,
+            };
+            const msg = `${payload.title} mein ${payload.playerCount} players hain. Room ID boliye.`;
+            setReply(msg);
+            speak(msg);
+          } catch {
+            notifyFlowRef.current = null;
+            setReply("Error aaya tournament dhoondhte waqt.");
+          } finally {
+            setBusy(false);
+          }
+          return;
+        }
+
+        if (flow.step === "await_roomid") {
+          flow.roomId = commandText.trim();
+          flow.step = "await_password";
+          setReply("Password boliye.");
+          speak("Password boliye.");
+          return;
+        }
+
+        if (flow.step === "await_password") {
+          flow.roomPassword = commandText.trim();
+          flow.step = "confirm";
+          const msg = `Confirm karu? ${flow.tournamentTitle} ke ${flow.playerCount} players ko Room ID ${flow.roomId} aur Password ${flow.roomPassword} bhejun. Haan ya nahi?`;
+          setReply(msg);
+          speak(msg);
+          return;
+        }
+
+        if (flow.step === "confirm") {
+          const answer = parseYesNo(text);
+          if (answer === "no") {
+            notifyFlowRef.current = null;
+            setReply("Theek hai Boss, cancel kar diya.");
+            speak("Cancel kar diya.");
+            return;
+          }
+          if (answer !== "yes") {
+            setReply('Boss, "haan" ya "nahi" boliye.');
+            return;
+          }
+
+          setBusy(true);
+          try {
+            const res = await fetch("/api/personal/notify/room-details", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                tournamentPk: flow.tournamentPk,
+                tournamentId: flow.tournamentId,
+                tournamentTitle: flow.tournamentTitle,
+                roomId: flow.roomId,
+                roomPassword: flow.roomPassword,
+              }),
+            });
+            const payload = await res.json();
+            notifyFlowRef.current = null;
+
+            setReply(
+              payload.success
+                ? `Bhej diya, Boss — ${payload.sentTo} players ko.`
+                : `Error: ${payload.error}`
+            );
+            speak(payload.success ? "Room details bhej di." : "Bhejne mein dikkat aayi.");
+          } catch {
+            notifyFlowRef.current = null;
+            setReply("Error aaya bhejte waqt.");
+          } finally {
+            setBusy(false);
+          }
+          return;
+        }
+      }
+
+      // GLOBAL MESSAGE flow
+      if (flow.type === "global") {
+        if (flow.step === "await_message") {
+          flow.message = commandText.trim();
+          flow.step = "confirm";
+          const msg = `Confirm karu? Sabko ye message jayega: "${flow.message}". Haan ya nahi?`;
+          setReply(msg);
+          speak(msg);
+          return;
+        }
+        if (flow.step === "confirm") {
+          const answer = parseYesNo(text);
+          if (answer === "no") {
+            notifyFlowRef.current = null;
+            setReply("Theek hai Boss, cancel kar diya.");
+            speak("Cancel kar diya.");
+            return;
+          }
+          if (answer !== "yes") {
+            setReply('Boss, "haan" ya "nahi" boliye.');
+            return;
+          }
+          setBusy(true);
+          try {
+            const res = await fetch("/api/personal/notify/global", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ message: flow.message }),
+            });
+            const payload = await res.json();
+            notifyFlowRef.current = null;
+            setReply(
+              payload.success
+                ? `Bhej diya, Boss — ${payload.sentTo} users ko.`
+                : `Error: ${payload.error}`
+            );
+            speak(payload.success ? "Global message bhej diya." : "Bhejne mein dikkat aayi.");
+          } catch {
+            notifyFlowRef.current = null;
+            setReply("Error aaya bhejte waqt.");
+          } finally {
+            setBusy(false);
+          }
+          return;
+        }
+      }
+
+      // PERSONAL MESSAGE flow
+      if (flow.type === "personal") {
+        if (flow.step === "await_identifier") {
+          flow.identifier = commandText.trim();
+          flow.step = "await_message";
+          setReply("Boss, kya message bhejna hai?");
+          speak("Kya message bhejna hai?");
+          return;
+        }
+        if (flow.step === "await_message") {
+          flow.message = commandText.trim();
+          flow.step = "confirm";
+          const msg = `Confirm karu? "${flow.identifier}" ko ye message jayega: "${flow.message}". Haan ya nahi?`;
+          setReply(msg);
+          speak(msg);
+          return;
+        }
+        if (flow.step === "confirm") {
+          const answer = parseYesNo(text);
+          if (answer === "no") {
+            notifyFlowRef.current = null;
+            setReply("Theek hai Boss, cancel kar diya.");
+            speak("Cancel kar diya.");
+            return;
+          }
+          if (answer !== "yes") {
+            setReply('Boss, "haan" ya "nahi" boliye.');
+            return;
+          }
+          setBusy(true);
+          try {
+            const res = await fetch("/api/personal/notify/personal", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                identifier: flow.identifier,
+                message: flow.message,
+              }),
+            });
+            const payload = await res.json();
+            notifyFlowRef.current = null;
+            setReply(payload.success ? `Bhej diya, Boss.` : `Error: ${payload.error}`);
+            speak(payload.success ? "Message bhej diya." : "Bhejne mein dikkat aayi.");
+          } catch {
+            notifyFlowRef.current = null;
+            setReply("Error aaya bhejte waqt.");
+          } finally {
+            setBusy(false);
+          }
+          return;
+        }
+      }
+
+      // PLAYER LIST flow
+      if (flow.type === "player_list") {
+        if (flow.step === "await_title") {
+          notifyFlowRef.current = null;
+          setBusy(true);
+          try {
+            const resolveRes = await fetch("/api/personal/tournament/resolve", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                exactTitle: commandText.trim(),
+                spokenText: commandText.trim(),
+              }),
+            });
+            const resolved = await resolveRes.json();
+
+            if (!resolved.success) {
+              setReply(`Boss, "${commandText.trim()}" wala tournament nahi mila.`);
+              speak("Tournament nahi mila.");
+              setBusy(false);
+              return;
+            }
+
+            const listRes = await fetch("/api/personal/tournament/players", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ tournamentId: resolved.tournamentId }),
+            });
+            const listPayload = await listRes.json();
+
+            if (!listPayload.success || listPayload.players.length === 0) {
+              setReply(`${resolved.title} mein abhi koi player nahi joina.`);
+              speak("Koi player nahi mila.");
+              setBusy(false);
+              return;
+            }
+
+            setPlayerList({ title: resolved.title, players: listPayload.players });
+            const msg = `${resolved.title} mein ${listPayload.players.length} players joined hain, screen pe list hai.`;
+            setReply(msg);
+            speak(msg);
+          } catch {
+            setReply("Error aaya players dhoondhte waqt.");
+          } finally {
+            setBusy(false);
+          }
+          return;
+        }
+      }
+    }
+
+    // ---- Trigger new notify flows ----
+    if (detectRoomDetailsIntent(text)) {
+      notifyFlowRef.current = { type: "room_details", step: "await_title" };
+      setReply("Boss, kis tournament ke liye? Title boliye.");
+      speak("Kis tournament ke liye, title boliye.");
+      return;
+    }
+
+    if (detectGlobalMsgIntent(text)) {
+      notifyFlowRef.current = { type: "global", step: "await_message" };
+      setReply("Boss, kya message sabko bhejna hai?");
+      speak("Kya message bhejna hai?");
+      return;
+    }
+
+    if (detectPersonalMsgIntent(text)) {
+      notifyFlowRef.current = { type: "personal", step: "await_identifier" };
+      setReply("Boss, kisko bhejna hai? Naam, email ya UID boliye.");
+      speak("Kisko bhejna hai?");
+      return;
+    }
+
+    if (detectPlayerListIntent(text)) {
+      notifyFlowRef.current = { type: "player_list", step: "await_title" };
+      setReply("Boss, kis tournament ke players dikhau? Title boliye.");
+      speak("Kis tournament ke players dikhau?");
       return;
     }
 
@@ -856,6 +1111,8 @@ export default function PersonalAssistantPage() {
     ? "VERIFYING"
     : slideGallery
     ? "SELECTING SLIDES"
+    : playerList
+    ? "SHOWING PLAYERS"
     : "ONLINE";
 
   return (
@@ -897,7 +1154,7 @@ export default function PersonalAssistantPage() {
         </p>
       </div>
 
-      {!slideGallery && (
+      {!slideGallery && !playerList && (
         <button
           type="button"
           onClick={handleCoreTap}
@@ -952,6 +1209,40 @@ export default function PersonalAssistantPage() {
         </div>
       )}
 
+      {playerList && (
+        <div className="relative z-20 w-full max-w-sm px-6">
+          <p className="text-red-400 text-xs tracking-widest mb-2 text-center">
+            {playerList.title}
+          </p>
+          <div className="max-h-80 overflow-y-auto space-y-2">
+            {playerList.players.map((p, i) => (
+              <div
+                key={i}
+                className="border border-red-900 rounded p-2 text-xs text-gray-200"
+              >
+                <p>
+                  <span className="text-red-500">IGN:</span> {p.ign || "—"}
+                </p>
+                <p>
+                  <span className="text-red-500">Game UID:</span> {p.uid || "—"}
+                </p>
+                <p>
+                  <span className="text-red-500">WhatsApp:</span>{" "}
+                  {p.whatsapp_number || "—"}
+                </p>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setPlayerList(null)}
+            className="mt-3 w-full rounded-full py-2 text-xs tracking-widest border border-red-600 text-red-400"
+          >
+            CLOSE
+          </button>
+        </div>
+      )}
+
       <div className="absolute bottom-28 left-0 right-0 z-30 flex flex-col items-center px-6 space-y-2 pointer-events-none">
         {transcript && (
           <p className="text-xs text-gray-400 max-w-xs text-center">
@@ -976,6 +1267,8 @@ export default function PersonalAssistantPage() {
             ? "Identity verification in progress…"
             : slideGallery
             ? "Tap the button above and speak your pick"
+            : playerList
+            ? "Player list on screen — tap close when done"
             : listening
             ? "Listening…"
             : busy
