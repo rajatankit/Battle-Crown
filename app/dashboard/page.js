@@ -41,18 +41,34 @@ function DashboardContent() {
   // status endpoint. The webhook is the actual source of truth — this is
   // just UI feedback, so it retries a few times in case the webhook hasn't
   // landed yet.
+  //
+  // IMPORTANT: this must wait for firebaseUser to be set. Cashfree's
+  // redirectTarget "_self" causes a full page reload, and auth.currentUser
+  // is null for a brief moment while Firebase rehydrates the session — if
+  // we call getIdToken() before that, it returns null and the request goes
+  // out unauthenticated (401). Gating on firebaseUser fixes that.
   useEffect(() => {
     const orderId = searchParams.get("order_id");
-    if (orderId) {
+    if (orderId && firebaseUser) {
       checkPaymentStatus(orderId);
     }
-  }, [searchParams]);
+  }, [searchParams, firebaseUser]);
 
   async function checkPaymentStatus(orderId, attempt = 1) {
     try {
       const token = await getIdToken();
+
+      if (!token) {
+        // Firebase session not ready yet — retry shortly instead of
+        // firing an unauthenticated request that will just 401.
+        if (attempt < 5) {
+          setTimeout(() => checkPaymentStatus(orderId, attempt + 1), 1500);
+        }
+        return;
+      }
+
       const res = await fetch(`/api/payment/status?order_id=${encodeURIComponent(orderId)}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
 
