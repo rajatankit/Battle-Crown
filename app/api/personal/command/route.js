@@ -128,7 +128,7 @@ function formatToolReply(step, result) {
   if (step.action === "read_player_data") {
     if (data.player) {
       const p = data.player;
-      return `Boss, ${p.name || "player"} ki UID ${p.uid} hai, email ${p.email}, level ${p.level}, crowns ${p.crowns}.`;
+      return `Boss, ${p.name || "player"} ki UID ${p.uid} hai, email ${p.email}, level ${p.level}.`;
     }
     if (Array.isArray(data.players)) {
       if (data.players.length === 0) return "Boss, is naam se koi player nahi mila.";

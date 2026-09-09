@@ -122,9 +122,6 @@ export async function POST(request) {
         name,
 
         // Explicit defaults for clarity
-        depositWallet: 0,
-        winningsWallet: 0,
-        crowns: 0,
         matchesPlayed: 0,
         level: 1,
         protectionPoints: 5,

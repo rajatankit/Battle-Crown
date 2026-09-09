@@ -21,15 +21,12 @@ function sanitizeMatch(match) {
     id: match.id,
     userId: match.userId,
     tournamentId: match.tournamentId,
-    tournamentName: match.tournamentName,
-    gameType: match.gameType,
-    mapName: match.mapName,
+    game: match.game,
     mode: match.mode,
-    entryFee: match.entryFee,
+    map: match.map,
     kills: match.kills,
-    rank: match.rank,
-    prizeWon: match.prizeWon,
-    status: match.status,
+    placement: match.placement,
+    resultStatus: match.resultStatus,
     screenshotUrl: match.screenshotUrl,
     createdAt: match.createdAt,
   };
@@ -171,24 +168,24 @@ export async function POST(request) {
         allowedUpdates.kills = kills;
       }
 
-      if (updates.rank !== undefined) {
-        const rank = Number(updates.rank);
+      if (updates.placement !== undefined) {
+        const placement = Number(updates.placement);
 
-        if (!Number.isInteger(rank) || rank < 0) {
+        if (!Number.isInteger(placement) || placement < 0) {
           return NextResponse.json(
             {
               success: false,
-              error: "rank must be a non-negative integer",
+              error: "placement must be a non-negative integer",
             },
             { status: 400 }
           );
         }
 
-        allowedUpdates.rank = rank;
+        allowedUpdates.placement = placement;
       }
 
       if (updates.status !== undefined) {
-        allowedUpdates.status = String(updates.status);
+        allowedUpdates.resultStatus = String(updates.status);
       }
 
       if (Object.keys(allowedUpdates).length === 0) {
@@ -216,13 +213,13 @@ export async function POST(request) {
       }
 
       if (
-        existing.status === "Approved" ||
-        existing.status === "Rejected"
+        existing.resultStatus === "VERIFIED" ||
+        existing.resultStatus === "REJECTED"
       ) {
         return NextResponse.json(
           {
             success: false,
-            error: `Match is already ${existing.status}`,
+            error: `Match is already ${existing.resultStatus}`,
           },
           { status: 409 }
         );
@@ -290,23 +287,21 @@ export async function POST(request) {
       const origin = new URL(request.url).origin;
 
       const response = await fetch(
-        `${origin}/api/admin/verify-match`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-admin-key": adminSecret,
-          },
-          body: JSON.stringify({
-            matchId,
-            kills: context.kills,
-            rank: context.rank,
-            action: verifyAction,
-          }),
-          cache: "no-store",
-        }
-      );
-
+  `${origin}/api/admin/matches/${matchId}/verify`,
+  {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-admin-key": adminSecret,
+    },
+    body: JSON.stringify({
+      kills: context.kills,
+      placement: context.rank,
+      action: verifyAction,
+    }),
+    cache: "no-store",
+  }
+);
       const data = await response.json();
 
       if (!response.ok) {

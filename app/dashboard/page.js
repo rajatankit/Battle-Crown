@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { auth, db } from "../lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
@@ -13,37 +13,65 @@ import WalletTab from "../../components/WalletTab";
 import ProfileTab from "../../components/ProfileTab";
 
 // Level/XP logic lives in one shared file, imported by both this page and
-// the /api/tournament/join route — this is what keeps the DB's level and
+// the /api/tournament/[id]/join route — this is what keeps the DB's level and
 // the UI's level from ever drifting apart. Don't redefine these locally.
 import { getTotalMatchesForLevel, levelBadgesMap, MAX_PLAYER_LEVEL, calculateLevelFromMatches } from "../lib/levelConfig";
+import { useSearchParams } from "next/navigation";
 
 const MAX_LEVEL = MAX_PLAYER_LEVEL;
 
-// ─── Crown Reward Table ───────────────────────────────────────────────────────
-const CROWN_REWARD_TABLE = [
-  { level: 1,  crowns: 5,   bumper: false },
-  { level: 5,  crowns: 10,  bumper: false },
-  { level: 10, crowns: 25,  bumper: true  },
-  { level: 15, crowns: 20,  bumper: false },
-  { level: 20, crowns: 50,  bumper: true  },
-  { level: 25, crowns: 30,  bumper: false },
-  { level: 30, crowns: 40,  bumper: false },
-  { level: 35, crowns: 50,  bumper: false },
-  { level: 40, crowns: 100, bumper: true  },
-  { level: 45, crowns: 80,  bumper: false },
-  { level: 50, crowns: 200, bumper: true  },
-];
-
-function getCrownRewardForLevel(level) {
-  const entry = CROWN_REWARD_TABLE.find((r) => r.level === level);
-  return entry ? entry.crowns : 0;
-}
-
-export default function DashboardPage() {
+function DashboardContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Small helper passed down to WalletTab/PaymentHistory so they can
+  // authenticate their own fetches without duplicating Firebase logic.
+  const getIdToken = async () => {
+    const currentUser = auth.currentUser;
+    if (!currentUser) return null;
+    return currentUser.getIdToken();
+  };
+
+  // ─── Payment Verify Logic ───────────────────────────────────────────────
+  // After the Cashfree redirect comes back with ?order_id=..., poll our own
+  // status endpoint. The webhook is the actual source of truth — this is
+  // just UI feedback, so it retries a few times in case the webhook hasn't
+  // landed yet.
+  useEffect(() => {
+    const orderId = searchParams.get("order_id");
+    if (orderId) {
+      checkPaymentStatus(orderId);
+    }
+  }, [searchParams]);
+
+  async function checkPaymentStatus(orderId, attempt = 1) {
+    try {
+      const token = await getIdToken();
+      const res = await fetch(`/api/payment/status?order_id=${encodeURIComponent(orderId)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json();
+
+      if (data.success && data.status === "PAID") {
+        alert("🎉 Tournament joined successfully!");
+        window.history.replaceState({}, document.title, "/dashboard");
+        return;
+      }
+
+      if (attempt < 5) {
+        setTimeout(() => checkPaymentStatus(orderId, attempt + 1), 2000);
+      } else {
+        alert("Payment is still processing — check your Match History shortly.");
+        window.history.replaceState({}, document.title, "/dashboard");
+      }
+    } catch (error) {
+      console.error("Payment status check error:", error);
+    }
+  }
 
   // ─── Bottom-nav tab switcher ──────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState("home"); // "home" | "battles" | "wallet" | "profile"
@@ -63,7 +91,7 @@ export default function DashboardPage() {
     });
     setTournaments(list);
 
-    // 👇 NEW — Postgres ki tournaments table ko Firestore ke saath sync rakhta hai
+    // 👇 Postgres ki tournaments table ko Firestore ke saath sync rakhta hai
     fetch("/api/tournaments/sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -72,12 +100,6 @@ export default function DashboardPage() {
   });
   return () => unsubscribe();
 }, []);
-
-  // ─── Wallet & Crown States ──────────────────────────────────────────────────
-  const [depositWallet, setDepositWallet]   = useState(0);
-  const [winningsWallet, setWinningsWallet] = useState(0);
-  const [crowns, setCrowns]                 = useState(0);
-  const [transacions, serTransactions]      = useState(0);
 
   // ─── Screenshot Upload States ───────────────────────────────────────────────
   const [matchScreenshot, setMatchScreenshot] = useState(null);
@@ -89,10 +111,6 @@ export default function DashboardPage() {
   const [matchesPlayed, setMatchesPlayed]         = useState(0);
   const [protectionPoints, setProtectionPoints]   = useState(5);
   const [isLevelModalOpen, setIsLevelModalOpen]   = useState(false);
-
-  // Crown level-up notification
-  const [levelUpCrownMsg, setLevelUpCrownMsg] = useState(null);
-  const prevLevelRef = useRef(null);
 
   // ─── 2D Info / XP Info Modals (realtime tooltip style) ─────────────────────
   const [inactivityModalMessage, setInactivityModalMessage] = useState(null);
@@ -162,8 +180,6 @@ export default function DashboardPage() {
       });
 
       const responseText = await res.text();
-      console.log("REGISTER API STATUS:", res.status);
-      console.log("REGISTER API RESPONSE:", responseText);
 
       let data;
       try {
@@ -180,9 +196,6 @@ export default function DashboardPage() {
 
       if (data?.user) {
         setUserName(data.user.name || "");
-        setDepositWallet(data.user.depositWallet ?? 0);
-        setWinningsWallet(data.user.winningsWallet ?? 0);
-        setCrowns(data.user.crowns ?? 0);
 
         const totalMatches = data.user.matchesPlayed ?? 0;
         setMatchesPlayed(totalMatches);
@@ -205,19 +218,6 @@ export default function DashboardPage() {
           const mhRes = await fetch(`/api/user/match-history?email=${encodeURIComponent(email)}`);
           const mhData = await mhRes.json();
           if (mhData.success) setMatchHistory(mhData.matches);
-          try {
-  const txRes = await fetch(
-    `/api/user/transactions?email=${encodeURIComponent(email)}`
-  );
-
-  const txData = await txRes.json();
-
-  if (txData.success) {
-    setTransactions(txData.transactions || []);
-  }
-} catch (txErr) {
-  console.error("Transaction history fetch error:", txErr);
-}
         } catch (mhErr) {
           console.error("Match history fetch error:", mhErr);
         }
@@ -225,8 +225,6 @@ export default function DashboardPage() {
 
       const protRes = await fetch(`/api/user/protection-status?email=${encodeURIComponent(email)}`);
       const protText = await protRes.text();
-      console.log("PROTECTION API STATUS:", protRes.status);
-      console.log("PROTECTION API RESPONSE:", protText);
 
       let protData;
       try {
@@ -247,20 +245,6 @@ export default function DashboardPage() {
     } catch (err) {
       console.error("Profile refresh error:", err);
     }
-
-    try {
-  const txRes = await fetch(
-    `/api/user/transactions?email=${encodeURIComponent(email)}`
-  );
-
-  const txData = await txRes.json();
-
-  if (txData.success) {
-    setTransactions(txData.transactions || []);
-  }
-} catch (txErr) {
-  console.error("Transactions fetch error:", txErr);
-}
   };
 
   // ─── Auth State Listener — triggers profile load & stops loading screen ────
@@ -281,7 +265,7 @@ export default function DashboardPage() {
     return () => unsubscribe();
   }, []);
 
-  // ─── Auto-refresh wallet/level every 15 seconds — no manual refresh needed ──
+  // ─── Auto-refresh level every 15 seconds — no manual refresh needed ────────
   useEffect(() => {
     if (!firebaseUser) return;
 
@@ -299,45 +283,6 @@ export default function DashboardPage() {
       setPlayerLevel(derivedLevel);
     }
   }, [matchesPlayed]);
-
-  // ─── Level-up Crown Reward Watcher ──────────────────────────────────────────
-  useEffect(() => {
-    if (prevLevelRef.current === null) {
-      prevLevelRef.current = playerLevel;
-      return;
-    }
-
-    if (playerLevel <= prevLevelRef.current) return;
-
-    fetch("/api/wallet/add-crown", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: userEmail, level: playerLevel }),
-    })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.success) {
-          setCrowns(d.crowns);
-
-          if (!d.alreadyClaimed && d.reward > 0) {
-            const reachedLevels = d.levelsRewarded || [];
-            const rewardText = reachedLevels
-              .map((level) => `Level ${level}: +${getCrownRewardForLevel(level)} 👑`)
-              .join("  ");
-
-            setLevelUpCrownMsg(`🏆 Level Up! You reached Level ${playerLevel} — ${rewardText}`);
-            setTimeout(() => setLevelUpCrownMsg(null), 5000);
-          }
-        } else {
-          console.error("Crown reward failed:", d.message);
-        }
-      })
-      .catch((error) => {
-        console.error("Crown reward error:", error);
-      });
-
-    prevLevelRef.current = playerLevel;
-  }, [playerLevel]);
 
   const handleLogout = async () => {
     try {
@@ -367,24 +312,6 @@ export default function DashboardPage() {
 
   // ─── Match History ──────────────────────────────────────────────────────────
   const [matchHistory, setMatchHistory] = useState([]);
-  const [transactions, setTransactions] = useState([]);
-  const [isTransactionHistoryOpen, setIsTransactionHistoryOpen] = useState(false);
-  const addMatchHistoryRecord = (tournamentName, mapName, gameType, entryPaid, dbMatchId) => {
-    const newRecord = {
-
-      id: Date.now(),
-      dbMatchId,
-      tournamentName,
-      mapName,
-      gameType,
-      playerLevel,
-      joinTime: new Date().toISOString(),
-      entryPaid,
-      screenshotUrl: null,
-    };
-
-    setMatchHistory((prev) => [newRecord, ...prev].slice(0, 5));
-  };
 
   // ─── Upload Match Screenshot ────────────────────────────────────────────────
   const handleUploadScreenshot = async (tournamentName, dbMatchId) => {
@@ -425,7 +352,7 @@ export default function DashboardPage() {
       }
 
       if (data.success) {
-      alert("🎉 Match screenshot uploaded successfully! Your screenshot is now pending admin verification. Once verified, the winnings will be credited to your winnings wallet.");
+        alert("🎉 Match screenshot uploaded successfully! Your screenshot is now pending admin verification. Once verified, your reward will show up under Pending Rewards.");
         setMatchScreenshot(null);
         setMatchHistory((prev) =>
           prev.map((m) =>
@@ -570,22 +497,12 @@ export default function DashboardPage() {
 
   return (
     <>
-      {/* Level-Up Crown Toast */}
-      {levelUpCrownMsg && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] bg-yellow-950 border border-yellow-500 text-yellow-300 text-xs font-bold px-5 py-3 rounded-lg shadow-2xl animate-bounce text-center max-w-xs">
-          {levelUpCrownMsg}
-        </div>
-      )}
-
-     
-
       {/* ─── Active Tab ──────────────────────────────────────────────────────── */}
       {activeTab === "home" && (
         <HomeTab
           displayName={userName || "Player"}
           playerLevel={playerLevel}
           protectionPoints={protectionPoints}
-          crowns={crowns}
           bgmiIgn={bgmiIgn}
           bgmiUid={bgmiUid}
           ffIgn={ffIgn}
@@ -619,17 +536,10 @@ export default function DashboardPage() {
 
       {activeTab === "wallet" && (
         <WalletTab
-          depositWallet={depositWallet}
-          setDepositWallet={setDepositWallet}
-          winningsWallet={winningsWallet}
-          setWinningsWallet={setWinningsWallet}
-          crowns={crowns}
-          setCrowns={setCrowns}
           userEmail={userEmail}
-          transactions={transacions}
+          getIdToken={getIdToken}
           onNavigate={handleNavigate}
           activeTab={activeTab}
-          onTransactionHistoryClick={() => setIsTransactionHistoryOpen(true)}
         />
       )}
 
@@ -691,32 +601,23 @@ export default function DashboardPage() {
               <span className="text-yellow-400 font-bold">Protection Points: {protectionPoints} 🛡️</span>
             </div>
             <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-              {levelBadgesMap.map((tier) => {
-                const crownReward = getCrownRewardForLevel(tier.level);
-                const isBumper   = CROWN_REWARD_TABLE.find((r) => r.level === tier.level)?.bumper;
-                return (
-                  <div key={tier.level} className={`p-2.5 rounded border text-xs ${playerLevel >= tier.level ? "bg-yellow-950/30 border-yellow-700/60 text-white" : "bg-black/40 border-gray-800 text-gray-500"}`}>
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <span className="font-bold block text-yellow-400">Level {tier.level}: {tier.name} {tier.badge}</span>
-                        <span className="text-[10px] text-gray-400">Lifetime matches to reach: {getTotalMatchesForLevel(tier.level)}</span>
-                      </div>
-                      <div className="text-right space-y-1">
-                        {playerLevel >= tier.level ? (
-                          <span className="text-[10px] bg-green-950 text-green-400 border border-green-800 px-2 py-0.5 font-bold block">UNLOCKED ✓</span>
-                        ) : (
-                          <span className="text-[10px] text-gray-500 font-mono block">LOCKED</span>
-                        )}
-                        {crownReward > 0 && (
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded block ${isBumper ? "bg-orange-950 text-orange-400 border border-orange-800" : "bg-yellow-950 text-yellow-400 border border-yellow-800"}`}>
-                            +{crownReward} 👑{isBumper ? " BUMPER" : ""}
-                          </span>
-                        )}
-                      </div>
+              {levelBadgesMap.map((tier) => (
+                <div key={tier.level} className={`p-2.5 rounded border text-xs ${playerLevel >= tier.level ? "bg-yellow-950/30 border-yellow-700/60 text-white" : "bg-black/40 border-gray-800 text-gray-500"}`}>
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <span className="font-bold block text-yellow-400">Level {tier.level}: {tier.name} {tier.badge}</span>
+                      <span className="text-[10px] text-gray-400">Lifetime matches to reach: {getTotalMatchesForLevel(tier.level)}</span>
+                    </div>
+                    <div className="text-right space-y-1">
+                      {playerLevel >= tier.level ? (
+                        <span className="text-[10px] bg-green-950 text-green-400 border border-green-800 px-2 py-0.5 font-bold block">UNLOCKED ✓</span>
+                      ) : (
+                        <span className="text-[10px] text-gray-500 font-mono block">LOCKED</span>
+                      )}
                     </div>
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
             <div className="flex justify-end pt-2">
               <button onClick={() => setIsLevelModalOpen(false)} className="px-4 py-2 bg-yellow-500 text-black font-bold text-xs uppercase cursor-pointer">Close</button>
@@ -892,12 +793,11 @@ export default function DashboardPage() {
               </div>
 
               <div>
-                <p className="font-bold text-yellow-400 mb-1">9. Wallet Rules</p>
+                <p className="font-bold text-yellow-400 mb-1">9. Payment & Payout Rules</p>
                 <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
-                  <li>Prize money is credited to the Winnings Wallet.</li>
-                  <li>Deposit Wallet cannot be used for withdrawals.</li>
-                  <li>Withdrawals are processed after successful verification.</li>
-                  <li>Battle Crown may require KYC verification before processing withdrawals as per applicable requirements.</li>
+                  <li>Entry fees are paid directly per tournament — Battle Crown does not hold a stored balance for you.</li>
+                  <li>Prize money is paid out via UPI after admin verification of your result.</li>
+                  <li>Battle Crown may require KYC verification before processing payouts as per applicable requirements.</li>
                 </ul>
               </div>
 
@@ -962,7 +862,7 @@ export default function DashboardPage() {
 
               <div>
                 <p className="font-bold text-yellow-400 mb-1">16. Privacy</p>
-                <p className="text-gray-400 mb-1">Battle Crown stores: Email, Game UID, IGN, Match History, and Wallet History.</p>
+                <p className="text-gray-400 mb-1">Battle Crown stores: Email, Game UID, IGN, Match History, and Payment History.</p>
                 <p className="text-gray-400">Data is used only for tournament operations.</p>
                 <p className="text-gray-400">Battle Crown does not sell user personal information to third parties.</p>
               </div>
@@ -1089,110 +989,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-
-
-      {/* ─── Transaction History Modal ─────────────────────────────── */}
-{isTransactionHistoryOpen && (
-  <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div className="bg-[#0f141c] border border-green-500/50 p-5 max-w-lg w-full rounded-xl shadow-2xl max-h-[85vh] flex flex-col">
-
-      {/* Header */}
-      <div className="flex justify-between items-center border-b border-gray-800 pb-3 mb-3">
-        <div>
-          <h2 className="text-sm font-bold text-green-400 uppercase tracking-widest">
-            // TRANSACTION HISTORY
-          </h2>
-
-          <p className="text-[10px] text-gray-500 mt-1">
-            Wallet activity & tournament rewards
-          </p>
-        </div>
-
-        <button
-          onClick={() => setIsTransactionHistoryOpen(false)}
-          className="text-gray-400 hover:text-white text-xs cursor-pointer"
-        >
-          ✕
-        </button>
-      </div>
-
-      {/* Transactions */}
-      <div className="space-y-2 overflow-y-auto flex-1 pr-1">
-
-        {transactions.length === 0 ? (
-          <div className="text-center py-10">
-            <div className="text-3xl mb-2">💳</div>
-            <p className="text-xs text-gray-500">
-              No transactions yet.
-            </p>
-          </div>
-        ) : (
-          transactions.map((tx) => {
-
-            const isCredit =
-              ["MATCH_WIN", "DEPOSIT", "REFUND", "BONUS"]
-                .includes(tx.type);
-
-            return (
-              <div
-                key={tx.id}
-                className="bg-black/40 border border-gray-800 rounded-lg p-3"
-              >
-                <div className="flex justify-between items-start gap-3">
-
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold text-white">
-                      {tx.description || "Wallet Transaction"}
-                    </p>
-
-                    <p className="text-[10px] text-gray-500 mt-1">
-                      {tx.createdAt
-                        ? new Date(tx.createdAt).toLocaleString()
-                        : "Recently"}
-                    </p>
-
-                    {tx.type && (
-                      <span className="inline-block mt-2 text-[9px] px-2 py-0.5 rounded border border-gray-700 text-gray-400">
-                        {tx.type}
-                      </span>
-                    )}
-                  </div>
-
-                  <div
-                    className={`font-bold text-sm whitespace-nowrap ${
-                      isCredit
-                        ? "text-green-400"
-                        : "text-red-400"
-                    }`}
-                  >
-                    {isCredit ? "+" : "-"}₹
-                    {Number(tx.amount || 0).toFixed(2)}
-                  </div>
-
-                </div>
-              </div>
-            );
-          })
-        )}
-
-      </div>
-
-      {/* Close */}
-      <div className="border-t border-gray-800 pt-3 mt-3 flex justify-end">
-        <button
-          onClick={() => setIsTransactionHistoryOpen(false)}
-          className="px-5 py-2 bg-green-500 text-black font-black text-xs uppercase rounded cursor-pointer hover:bg-green-400"
-        >
-          Close
-        </button>
-      </div>
-
-    </div>
-  </div>
-)}
-
-
-
       {/* ─── Step 4: Final Confirmation ───────────────────────────────────────── */}
       {isConfirmModalOpen && activeMatch && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -1209,46 +1005,49 @@ export default function DashboardPage() {
                 disabled={isSubmitting}
                 onClick={async () => {
                   if (isSubmitting) return;
-                  if (depositWallet < activeMatch.entryFee) {
-                    alert("Insufficient deposit balance. Please add money to continue.");
-                    setIsConfirmModalOpen(false); return;
-                  }
                   setIsSubmitting(true);
-                  try {
-                    const formData = new FormData();
-                    formData.append("email", userEmail);
-                    formData.append("tournamentId", activeMatch.id);
-                    formData.append("game", activeMatch.game);
-                    formData.append("entryFee", activeMatch.entryFee);
-                    formData.append("tournamentName", activeMatch.title);
-                    formData.append("mapName", activeMatch.map);
-                    formData.append("ign", playerIgnInput);
-                    formData.append("uid", playerUidInput);
-                    formData.append("whatsapp_number", playerWhatsapp);
-                    formData.append("gameType", selectedGameTab === "bgmi" ? "BGMI" : "FREE FIRE");
 
-                    const res  = await fetch("/api/tournament/join", { method: "POST", body: formData });
+                  try {
+                    const idToken = await getIdToken();
+                    if (!idToken) {
+                      alert("Please log in again.");
+                      return;
+                    }
+
+                    const res = await fetch(`/api/tournament/${activeMatch.id}/join`, {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${idToken}`,
+                      },
+                      body: JSON.stringify({
+                        whatsapp: playerWhatsapp,
+                        ign: playerIgnInput,
+                        uid: playerUidInput,
+                      }),
+                    });
+
                     const data = await res.json();
 
-                    if (data.success) {
-                      if (data.depositWallet !== undefined) setDepositWallet(data.depositWallet);
-                      if (data.crowns !== undefined) setCrowns(data.crowns);
-                      else setCrowns((p) => p + 1);
-
-                      if (data.matchesPlayed !== undefined) {
-                        setMatchesPlayed(data.matchesPlayed);
-                      } else {
-                        setMatchesPlayed((p) => p + 1);
-                      }
-
-                      addMatchHistoryRecord(activeMatch.title, activeMatch.map, selectedGameTab === "bgmi" ? "BGMI" : "FREE FIRE", `₹${activeMatch.entryFee}`, data.matchHistoryId);
-                      alert(`Successfully joined ${activeMatch.title}!`);
-                      setIsConfirmModalOpen(false);
-                    } else {
-                      alert(`Error: ${data.message || "Could not join tournament"}`);
+                    if (!data.success) {
+                      alert(data.message || "Failed to initiate payment");
+                      return;
                     }
-                  } catch {
-                    alert("Server connection error during registration.");
+
+                    const cashfree = new window.Cashfree({
+                      mode: "sandbox",
+                    });
+
+                    cashfree.checkout({
+                      paymentSessionId: data.payment_session_id,
+                      redirectTarget: "_self",
+                    });
+
+                    setIsConfirmModalOpen(false);
+
+                  } catch (error) {
+                    console.error("Join Error:", error);
+                    alert("Something went wrong while joining");
                   } finally {
                     setIsSubmitting(false);
                   }
@@ -1323,5 +1122,21 @@ export default function DashboardPage() {
         </div>
       )}
     </>
+  );
+}
+
+import { Suspense } from "react";
+
+export default function DashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#0b0f17] flex items-center justify-center text-cyan-400 font-mono text-sm animate-pulse">
+          LOADING BATTLE CROWN DASHBOARD...
+        </div>
+      }
+    >
+      <DashboardContent />
+    </Suspense>
   );
 }

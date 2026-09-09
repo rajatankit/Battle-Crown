@@ -7,14 +7,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============================================================
+// CORE MODELS
+// ============================================================
+
 model User {
   id                    Int                 @id @default(autoincrement())
   uid                   String?             @unique
   email                 String              @unique
   name                  String?
-  depositWallet         Float               @default(0)
-  winningsWallet        Float               @default(0)
-  crowns                Int                 @default(0)
+  dateOfBirth           DateTime?           // KYC/Age
+  ageConfirmed          Boolean             @default(false)
   matchesPlayed         Int                 @default(0)
   level                 Int                 @default(1)
   protectionPoints      Int                 @default(5)
@@ -29,137 +32,175 @@ model User {
   bio                   String?
   ffIgn                 String?
   ffUid                 String?
-  matchHistories        MatchHistory[]
-  walletTransactions    WalletTransaction[]
-  withdrawalRequests    WithdrawalRequest[]
+
+  // Relations
+  matchHistories      MatchHistory[]
+  entryPayments       EntryPayment[]
+  tournamentRewards   TournamentReward[]
+  withdrawalRequests  WithdrawalRequest[]
+  grievances          Grievance[]
 
   @@map("User")
 }
 
 model Tournament {
-  id           Int       @id @default(autoincrement())
-  firestoreId  String?   @unique
-  title        String
-  game         String
-  map          String?
-  mode         String?
-  entryFee     String?
-  maxSlots     Int       @default(100)
-  joinedCount  Int       @default(0)
-  status       String    @default("upcoming")
-  createdAt    DateTime  @default(now())
-  firstPrize   Float?    @default(0)
-  secondPrize  Float?    @default(0)
-  thirdPrize   Float?    @default(0)
-  killReward   Float?    @default(5)
-  roomId       String?
-  roomPassword String?
-  startTime    DateTime? @db.Timestamp(6)
-  reminderSent Boolean   @default(false)
-  lowJoinAlertSent Boolean  @default(false)
-  roomMissingAlerted Boolean @default(false)
+  id                   Int       @id @default(autoincrement())
+  firestoreId          String?   @unique
+  title                String
+  game                 String
+  map                  String?
+  mode                 String?
+  entryFee             String?
+  maxSlots             Int       @default(100)
+  joinedCount          Int       @default(0)
+  status               String    @default("upcoming") // upcoming | registration_closed | live | completed | cancelled
+  createdAt            DateTime  @default(now())
+  firstPrize           Float?    @default(0)
+  secondPrize          Float?    @default(0)
+  thirdPrize           Float?    @default(0)
+  killReward           Float?    @default(5)
+  roomId               String?
+  roomPassword         String?
+  startTime            DateTime? @db.Timestamp(6)
+  reminderSent         Boolean   @default(false)
+  lowJoinAlertSent     Boolean   @default(false)
+  roomMissingAlerted   Boolean   @default(false)
+
+  // Compliance fields
+  scoringFormula        String?  // "1st: 20%, 2nd: 10%, 3rd: 5%, per-kill: ₹5"
+  rulesVersion           String? @default("v1")
+  rulesUrl                String? // Public rules page link
+  verificationRequired    Boolean @default(true)
+  noWageringDeclaration   Boolean @default(true)
+
+  // Relations
+  entryPayments        EntryPayment[]
+  tournamentRewards    TournamentReward[]
+  matchHistories       MatchHistory[]
+  grievances           Grievance[]
 
   @@map("tournaments")
 }
 
 model MatchHistory {
-  id                 Int                 @id @default(autoincrement())
-  userId             Int
-  tournamentName     String
-  screenshotUrl      String?
-  mapName            String?
-  mode               String?
-  gameType           String?
-  entryFee           String?
-  maxSlots           Int                 @default(100)
-  playerLevel        Int                 @default(1)
-  ign                String?
-  uid                String?
-  whatsapp_number    String?
-  email              String?
-  kills              Int                 @default(0)
-  prizeWon           Float               @default(0)
-  status             String              @default("Joined Successfully")
-  createdAt          DateTime            @default(now())
-  tournamentId       String?
-  player_level       Int?                @default(1)
-  screenshot_url     String?
-  rank               Int?                @default(0)
-  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  walletTransactions WalletTransaction[]
+  id             Int       @id @default(autoincrement())
+  userId         Int
+  tournamentId   Int?
+  kills          Int       @default(0)
+  placement      Int?
+  screenshotUrl  String?
+  ign            String?
+  uid            String?
+  game           String?
+  mode           String?
+  map            String?
+  notes          String?
+  resultStatus   String    @default("UNVERIFIED") // UNVERIFIED | ADMIN_REVIEW | VERIFIED | REJECTED
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  @@index([tournamentId], map: "idx_match_tournament")
-  @@index([userId], map: "idx_match_user")
-  @@map("match_history")
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tournament       Tournament?       @relation(fields: [tournamentId], references: [id])
+  entryPayments    EntryPayment[]
+  tournamentReward TournamentReward?
+
+  @@index([userId])
+  @@index([tournamentId])
+  @@index([resultStatus])
+  @@map("match_histories")
 }
 
-model WalletTransaction {
-  id          Int           @id @default(autoincrement())
-  userId      Int?
-  matchId     Int?
-  amount      Float?        @default(0)
-  type        String
-  description String?
-  createdAt   DateTime?     @default(now()) @db.Timestamp(6)
-  match       MatchHistory? @relation(fields: [matchId], references: [id], onUpdate: NoAction)
-  user        User?         @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+// ============================================================
+// DIRECT PAYMENT — entry fee paid straight to Cashfree per join,
+// no stored wallet balance anywhere.
+// ============================================================
 
-  @@index([userId], map: "idx_wallet_user")
-  @@map("wallet_transactions")
+model EntryPayment {
+  id               Int           @id @default(autoincrement())
+  userId           Int
+  tournamentId     Int
+  matchId          Int?
+  amount           Float
+  paymentGatewayId String?       // Cashfree cf_payment_id
+  status           String        @default("PAID") // PAID | FAILED | REFUNDED
+  description      String        // "Tournament Entry Fee - [Name] - [OrderId]"
+  createdAt        DateTime      @default(now())
+
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tournament       Tournament    @relation(fields: [tournamentId], references: [id])
+  match            MatchHistory? @relation(fields: [matchId], references: [id], onUpdate: NoAction)
+
+  @@index([userId])
+  @@index([tournamentId])
+  @@map("entry_payments")
+}
+
+model TournamentReward {
+  id                Int          @id @default(autoincrement())
+  userId            Int
+  tournamentId      Int
+  matchHistoryId    Int          @unique
+  amount            Float
+  reason            String       // "1st Place" | "2nd Place" | "Per Kill x5"
+  status            String       @default("PENDING_PAYOUT") // PENDING_PAYOUT | PAID
+  verifiedByAdminId String?
+  verifiedAt        DateTime?
+  createdAt         DateTime     @default(now())
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tournament        Tournament         @relation(fields: [tournamentId], references: [id])
+  matchHistory      MatchHistory       @relation(fields: [matchHistoryId], references: [id])
+  withdrawalRequest WithdrawalRequest?
+
+  @@index([userId])
+  @@index([tournamentId])
+  @@map("tournament_rewards")
 }
 
 model WithdrawalRequest {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  amount    Float
-  upiId     String
-  status    String   @default("Pending")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                 Int              @id @default(autoincrement())
+  userId             Int
+  tournamentRewardId Int              @unique
+  amount             Float
+  upiId              String
+  status             String           @default("Pending") // Pending | Approved | Rejected | Paid
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 
-  @@index([userId], map: "idx_withdraw_user")
+  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tournamentReward   TournamentReward @relation(fields: [tournamentRewardId], references: [id])
+
+  @@index([userId])
   @@map("withdrawal_requests")
 }
 
-model players {
-  id             Int      @id @default(autoincrement())
-  email          String
-  whatsappNumber String?
-  ign            String
-  uid            String
-  gameType       String?
-  mapName        String?
-  entryFee       Float    @default(0)
-  playerLevel    Int      @default(1)
-  kills          Int      @default(0)
-  prizeWon       Float    @default(0)
-  screenshotUrl  String?
-  status         String   @default("pending")
-  mode           String?
-  maxSlots       Int      @default(100)
-  createdAt      DateTime @default(now())
-  screenshot_url String?
-  prize_won      Float?   @default(0)
-  max_slots      Int?     @default(100)
-  player_level   Int?     @default(1)
+// ============================================================
+// GRIEVANCE SYSTEM (Mandatory for compliance)
+// ============================================================
+
+model Grievance {
+  id            Int       @id @default(autoincrement())
+  userId        Int
+  tournamentId  Int?
+  subject       String
+  description   String
+  status        String    @default("OPEN") // OPEN | IN_REVIEW | RESOLVED | ESCALATED
+  raisedAt      DateTime  @default(now())
+  resolvedAt    DateTime?
+  resolution    String?
+  adminNotes    String?
+
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tournament    Tournament? @relation(fields: [tournamentId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@map("grievances")
 }
 
-model users {
-  id                    Int       @id @default(autoincrement())
-  uid                   String?   @unique
-  email                 String    @unique @db.VarChar(255)
-  name                  String?
-  deposit_wallet        Float?    @default(0)
-  winnings_wallet       Float?    @default(0)
-  crowns                Int?      @default(0)
-  level                 Int?      @default(1)
-  matches_played        Int?      @default(0)
-  protection_points     Int?      @default(5)
-  claimed_level_rewards Json?     @default("[]")
-  last_match_at         DateTime? @db.Timestamp(6)
-  created_at            DateTime? @default(now()) @db.Timestamp(6)
-}
+// ============================================================
+// CORTEX + SYSTEM (unchanged)
+// ============================================================
 
 model Notification {
   id        String   @id @default(cuid())
@@ -196,32 +237,19 @@ model PersonalPasskeyChallenge {
   createdAt DateTime @default(now())
 }
 
-// ============================================================
-// ADD THIS MODEL TO YOUR EXISTING prisma/schema.prisma
-// do not overwrite your existing schema — just paste this
-// model in alongside your other models, then run:
-//   npx prisma migrate dev --name add_cortex_security
-// ============================================================
-
 model CortexSecurity {
   id                String   @id @default(cuid())
-
-  // WebAuthn (fingerprint / face — the device decides which)
   webauthnCredId    String?  @unique
   webauthnPublicKey String?
   webauthnCounter   Int      @default(0)
   webauthnChallenge String?
-
-  // Custom pattern lock (used for HIGH risk actions)
   patternHash       String?
   patternSalt       String?
   voiceProfile      String?
   voiceEnrolledAt   DateTime?
-
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }
-
 
 model MonitorState {
   id            Int      @id @default(1)
@@ -257,27 +285,27 @@ model CortexMemory {
 }
 
 model TournamentDraft {
-  id                     Int       @id @default(1)
-  active                 Boolean   @default(false)
-  stage                  String    @default("collecting") // collecting | duplicate_confirm | final_confirm
-  title                  String?
-  game                   String?
-  mode                   String?
-  entryFee               String?
-  maxSlots               Int?
-  startTime              DateTime?
-  killReward             Float?
-  firstPrize             Float?
-  secondPrize            Float?
-  thirdPrize             Float?
-  duplicateTournamentId  Int?
-  updatedAt              DateTime  @updatedAt
+  id                    Int       @id @default(1)
+  active                Boolean   @default(false)
+  stage                 String    @default("collecting")
+  title                 String?
+  game                  String?
+  mode                  String?
+  entryFee              String?
+  maxSlots              Int?
+  startTime             DateTime?
+  killReward            Float?
+  firstPrize            Float?
+  secondPrize           Float?
+  thirdPrize            Float?
+  duplicateTournamentId Int?
+  updatedAt             DateTime  @updatedAt
 }
 
 model ConversationLog {
   id        Int      @id @default(autoincrement())
   userId    String
-  role      String   // "user" | "cortex"
+  role      String
   message   String
   createdAt DateTime @default(now())
 

@@ -103,26 +103,21 @@ const handleMatchAction = async (match, action) => {
 
   try {
     const res = await fetch(
-      "/api/admin/verify-match",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key":
-            process.env.NEXT_PUBLIC_ADMIN_SECRET_KEY,
-        },
-        body: JSON.stringify({
-          matchId: match.id,
-          kills: match.kills || 0,
-          totalRoomEntryFee:
-            match.totalRoomEntryFee ||
-            match.entryFee ||
-            0,
-          rank: match.rank || 0,
-          action,
-        }),
-      }
-    );
+  `/api/admin/matches/${match.id}/verify`,
+  {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-admin-key":
+        process.env.NEXT_PUBLIC_ADMIN_SECRET_KEY,
+    },
+    body: JSON.stringify({
+      kills: match.kills || 0,
+      placement: match.rank || 0,
+      action,
+    }),
+  }
+);
 
     const data = await res.json();
 

@@ -56,6 +56,7 @@ export async function POST(req) {
       },
       include: {
         user: true,
+        tournamentReward: true,
       },
     });
 
@@ -84,15 +85,18 @@ export async function POST(req) {
     // APPROVE
     // =========================
     if (action === "APPROVE") {
-      const updatedWithdrawal =
-        await prisma.withdrawalRequest.update({
-          where: {
-            id: parsedId,
-          },
-          data: {
-            status: "Approved",
-          },
+      const updatedWithdrawal = await prisma.$transaction(async (tx) => {
+        // Reward ko PAID mark karo — sirf yahi asli "source of truth" hai
+        await tx.tournamentReward.update({
+          where: { id: withdrawal.tournamentRewardId },
+          data: { status: "PAID" },
         });
+
+        return tx.withdrawalRequest.update({
+          where: { id: parsedId },
+          data: { status: "Approved" },
+        });
+      });
 
       // Database me actual status check karne ke liye
       console.log(
@@ -102,13 +106,13 @@ export async function POST(req) {
       );
 
       await prisma.notification.create({
-  data: {
-    type: "PERSONAL",
-    userId: withdrawal.user.uid,
-    title: "💰 Withdrawal Approved!",
-    message: `Your withdrawal of ₹${withdrawal.amount} has been sent to your UPI ID (${withdrawal.upiId}). Please check your bank/UPI app.`,
-  },
-});
+        data: {
+          type: "PERSONAL",
+          userId: withdrawal.user.uid,
+          title: "💰 Withdrawal Approved!",
+          message: `Your withdrawal of ₹${withdrawal.amount} has been sent to your UPI ID (${withdrawal.upiId}). Please check your bank/UPI app.`,
+        },
+      });
 
       return NextResponse.json({
         success: true,
@@ -122,49 +126,28 @@ export async function POST(req) {
     // REJECT
     // =========================
     if (action === "REJECT") {
-      const updatedWithdrawal = await prisma.$transaction(
-        async (tx) => {
-          // Pehle withdrawal ko Rejected karo
-          const updated = await tx.withdrawalRequest.update({
-            where: {
-              id: parsedId,
-            },
-            data: {
-              status: "Rejected",
-            },
-          });
+      // WithdrawalRequest delete karte hain (tournamentRewardId @unique hai) —
+      // isse reward apne aap wapas PENDING_PAYOUT slot mein free ho jaata hai,
+      // koi manual "refund to wallet" nahi chahiye kyunki wallet hai hi nahi
+      await prisma.withdrawalRequest.delete({
+        where: { id: parsedId },
+      });
 
-          // Amount wallet me refund karo
-         await tx.user.update({
-  where: { id: withdrawal.userId },
-  data: { winningsWallet: { increment: withdrawal.amount } },
-});
+      await prisma.notification.create({
+        data: {
+          type: "PERSONAL",
+          userId: withdrawal.user.uid,
+          title: "❌ Withdrawal Rejected",
+          message: `Your withdrawal request of ₹${withdrawal.amount} was rejected. You can submit a new withdrawal request for this reward.`,
+        },
+      });
 
-await tx.notification.create({
-  data: {
-    type: "PERSONAL",
-    userId: withdrawal.user.uid,
-    title: "❌ Withdrawal Rejected",
-    message: `Your withdrawal request of ₹${withdrawal.amount} was rejected. The amount has been refunded to your Winnings Wallet.`,
-  },
-});
-
-
-          return updated;
-        }
-      );
-
-      console.log(
-        "WITHDRAWAL REJECTED:",
-        updatedWithdrawal.id,
-        updatedWithdrawal.status
-      );
+      console.log("WITHDRAWAL REJECTED (request deleted):", parsedId);
 
       return NextResponse.json({
         success: true,
         message:
-          "Withdrawal rejected aur amount user ke wallet me refund ho gaya.",
-        withdrawal: updatedWithdrawal,
+          "Withdrawal rejected. Reward ab dobara withdraw ke liye available hai.",
       });
     }
 
