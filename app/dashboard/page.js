@@ -11,6 +11,7 @@ import HomeTab from "../../components/HomeTab";
 import BattlesTab from "../../components/BattlesTab";
 import WalletTab from "../../components/WalletTab";
 import ProfileTab from "../../components/ProfileTab";
+import MatchHistoryModal from "../../components/MatchHistoryModal";
 
 // Level/XP logic lives in one shared file, imported by both this page and
 // the /api/tournament/[id]/join route — this is what keeps the DB's level and
@@ -549,6 +550,13 @@ function DashboardContent() {
           onMatchHistoryClick={() => setIsMatchHistoryOpen(true)}
         />
       )}
+
+      {isMatchHistoryOpen && (
+  <MatchHistoryModal
+    email={loggedInUserEmail}  // tumhara actual logged-in user email variable
+    onClose={() => setIsMatchHistoryOpen(false)}
+  />
+)}
 
       {activeTab === "wallet" && (
         <WalletTab

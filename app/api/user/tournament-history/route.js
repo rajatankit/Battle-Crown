@@ -1,4 +1,4 @@
-// app/api/user/entry-payments/route.js
+// app/api/user/tournament-history/route.js
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 
@@ -36,17 +36,14 @@ export async function GET(req) {
       },
     });
 
-    const matchIds = entries.map((e) => e.match?.id).filter(Boolean);
+    // Har entry ke liye reward alag se nikaalo (matchId ke through)
+    const matchIds = entries.map(e => e.match?.id).filter(Boolean);
+    const rewards = await prisma.tournamentReward.findMany({
+      where: { matchHistoryId: { in: matchIds } },
+    });
+    const rewardMap = Object.fromEntries(rewards.map(r => [r.matchHistoryId, r]));
 
-    const rewards = matchIds.length
-      ? await prisma.tournamentReward.findMany({
-          where: { matchHistoryId: { in: matchIds } },
-        })
-      : [];
-
-    const rewardMap = Object.fromEntries(rewards.map((r) => [r.matchHistoryId, r]));
-
-    const history = entries.map((e) => {
+    const history = entries.map(e => {
       const reward = e.match ? rewardMap[e.match.id] : null;
       return {
         tournamentId: e.tournament.id,
@@ -54,14 +51,15 @@ export async function GET(req) {
         game: e.tournament.game,
         startTime: e.tournament.startTime,
         entryFeePaid: e.amount,
-        paymentStatus: e.status,
-        resultStatus: e.match?.resultStatus ?? "NOT_SUBMITTED",
+        paymentStatus: e.status, // PAID | FAILED | REFUNDED
+        resultStatus: e.match?.resultStatus ?? "NOT_SUBMITTED", // UNVERIFIED | ADMIN_REVIEW | VERIFIED | REJECTED
         screenshotUrl: e.match?.screenshotUrl ?? null,
-        matchId: e.match?.id ?? null,
         placement: e.match?.placement ?? null,
         kills: e.match?.kills ?? 0,
         rewardAmount: reward?.amount ?? 0,
-        rewardStatus: reward ? reward.status : "NO_REWARD",
+        rewardStatus: reward
+          ? reward.status // PENDING_PAYOUT | PAID
+          : "NO_REWARD",
         rewardReason: reward?.reason ?? null,
       };
     });

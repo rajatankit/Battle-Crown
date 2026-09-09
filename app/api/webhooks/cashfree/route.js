@@ -105,21 +105,68 @@ export async function POST(req) {
         );
       }
 
-      await tx.entryPayment.create({
-        data: {
-          userId,
-          tournamentId,
-          amount: Number(paidAmount),
-          paymentGatewayId: cfPaymentId,
-          status: "PAID",
-          description: `Tournament Entry Fee - ${tournament.title} - ${cfOrderId}`,
-        },
-      });
+      
 
-      await tx.tournament.update({
-        where: { id: tournamentId },
-        data: { joinedCount: { increment: 1 } },
-      });
+      // Payment SUCCESS confirm hone ke baad
+
+const result = await prisma.$transaction(async (tx) => {
+  // 1. Check: kya payment already processed hai?
+  const existingPayment = await tx.entryPayment.findFirst({
+    where: {
+      paymentGatewayId: cf_payment_id,
+      status: "PAID",
+    },
+  });
+
+  if (existingPayment) {
+    return {
+      alreadyProcessed: true,
+      matchId: existingPayment.matchId,
+    };
+  }
+
+  // 2. Match history create
+  const matchHistory = await tx.matchHistory.create({
+    data: {
+      userId: user.id,
+      tournamentId: tournament.id,
+      game: tournament.game,
+      map: tournament.map,
+      mode: tournament.mode,
+      resultStatus: "UNVERIFIED",
+    },
+  });
+
+  // 3. Entry payment create + match link
+  await tx.entryPayment.create({
+    data: {
+      userId: user.id,
+      tournamentId: tournament.id,
+      matchId: matchHistory.id,
+      amount: amount,
+      paymentGatewayId: cf_payment_id,
+      status: "PAID",
+      description: `Tournament Entry Fee - ${tournament.title} - ${orderId}`,
+    },
+  });
+
+  // 4. Joined count increment
+  await tx.tournament.update({
+    where: {
+      id: tournament.id,
+    },
+    data: {
+      joinedCount: {
+        increment: 1,
+      },
+    },
+  });
+
+  return {
+    alreadyProcessed: false,
+    matchId: matchHistory.id,
+  };
+});
     });
 
     return NextResponse.json({ ok: true });

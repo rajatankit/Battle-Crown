@@ -187,56 +187,88 @@ export default function PaymentHistory({ userEmail, getIdToken = async () => nul
             </div>
           )}
 
-          {/* Entry payment history */}
-          <div className="rounded-xl border border-gray-800/80 bg-black/30 overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800/80">
-              <div>
-                <p className="text-[9px] text-cyan-500/80 font-mono tracking-[0.18em] uppercase">// Entry Payments</p>
-                <h4 className="text-sm font-black text-white uppercase tracking-wider mt-0.5">What You've Paid</h4>
-              </div>
-              <span className="text-[8px] text-gray-500 font-mono uppercase">{payments.length} Records</span>
-            </div>
+          // Entry payment history — ab har payment ke saath uska reward status bhi dikhega
+<div className="rounded-xl border border-gray-800/80 bg-black/30 overflow-hidden">
+  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800/80">
+    <div>
+      <p className="text-[9px] text-cyan-500/80 font-mono tracking-[0.18em] uppercase">// Entry Payments</p>
+      <h4 className="text-sm font-black text-white uppercase tracking-wider mt-0.5">What You've Paid</h4>
+    </div>
+    <span className="text-[8px] text-gray-500 font-mono uppercase">{payments.length} Records</span>
+  </div>
 
-            <div className="max-h-[320px] overflow-y-auto">
-              {loadingPayments ? (
-                <div className="p-6 text-center">
-                  <div className="inline-block w-5 h-5 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-                  <p className="text-[9px] text-gray-500 font-mono mt-2">Loading payments...</p>
+  <div className="max-h-[320px] overflow-y-auto">
+    {loadingPayments ? (
+      <div className="p-6 text-center">
+        <div className="inline-block w-5 h-5 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+        <p className="text-[9px] text-gray-500 font-mono mt-2">Loading payments...</p>
+      </div>
+    ) : payments.length === 0 ? (
+      <div className="p-8 text-center">
+        <div className="mx-auto w-10 h-10 rounded-xl bg-gray-900 border border-gray-800 flex items-center justify-center mb-3">💳</div>
+        <p className="text-xs text-gray-400 font-bold">No Payments Yet</p>
+        <p className="text-[9px] text-gray-600 font-mono mt-1">Tournament entry payments will appear here.</p>
+      </div>
+    ) : (
+      <div className="divide-y divide-gray-800/60">
+        {payments.map((p) => {
+          const date = p.createdAt
+            ? new Date(p.createdAt).toLocaleString("en-IN", {
+                day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+              })
+            : "";
+
+          // Is tournament ke liye reward status dhoondo (agar koi hai)
+          const matchedReward = rewards.find((r) => r.tournamentId === p.tournamentId);
+
+          let rewardBadge = null;
+          if (matchedReward) {
+            if (matchedReward.status === "PAID") {
+              rewardBadge = (
+                <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/60">
+                  ✓ Reward Paid ₹{matchedReward.amount}
+                </span>
+              );
+            } else {
+              rewardBadge = (
+                <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded bg-yellow-950/60 text-yellow-400 border border-yellow-800/60">
+                  ⏳ Reward Pending ₹{matchedReward.amount}
+                </span>
+              );
+            }
+          } else {
+            rewardBadge = (
+              <span className="text-[8px] font-mono uppercase px-1.5 py-0.5 rounded bg-gray-900/60 text-gray-500 border border-gray-800/60">
+                No Reward Yet
+              </span>
+            );
+          }
+
+          return (
+            <div key={p.id} className="px-4 py-3 hover:bg-white/[0.02] transition">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 shrink-0 rounded-lg border flex items-center justify-center bg-red-950/30 border-red-800/50">
+                  <span className="text-sm">↘</span>
                 </div>
-              ) : payments.length === 0 ? (
-                <div className="p-8 text-center">
-                  <div className="mx-auto w-10 h-10 rounded-xl bg-gray-900 border border-gray-800 flex items-center justify-center mb-3">💳</div>
-                  <p className="text-xs text-gray-400 font-bold">No Payments Yet</p>
-                  <p className="text-[9px] text-gray-600 font-mono mt-1">Tournament entry payments will appear here.</p>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] text-white font-bold truncate">
+                    {p.tournament?.title || p.description || "Tournament Entry Fee"}
+                  </p>
+                  <p className="text-[8px] text-gray-600 font-mono mt-0.5">{date}</p>
                 </div>
-              ) : (
-                <div className="divide-y divide-gray-800/60">
-                  {payments.map((p) => {
-                    const date = p.createdAt
-                      ? new Date(p.createdAt).toLocaleString("en-IN", {
-                          day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
-                        })
-                      : "";
-                    return (
-                      <div key={p.id} className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition">
-                        <div className="w-9 h-9 shrink-0 rounded-lg border flex items-center justify-center bg-red-950/30 border-red-800/50">
-                          <span className="text-sm">↘</span>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[10px] text-white font-bold truncate">{p.description || "Tournament Entry Fee"}</p>
-                          <p className="text-[8px] text-gray-600 font-mono mt-0.5">{date}</p>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <p className="text-xs font-black text-red-400">-₹{Number(p.amount || 0)}</p>
-                          <p className="text-[7px] text-gray-600 uppercase font-mono mt-0.5">{p.status}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="text-right shrink-0">
+                  <p className="text-xs font-black text-red-400">-₹{Number(p.amount || 0)}</p>
+                  <p className="text-[7px] text-gray-600 uppercase font-mono mt-0.5">{p.status}</p>
                 </div>
-              )}
+              </div>
+              <div className="mt-2 ml-12">{rewardBadge}</div>
             </div>
-          </div>
+          );
+        })}
+      </div>
+    )}
+  </div>
+</div>
 
           <div className="mt-5 flex flex-col sm:flex-row items-center justify-between gap-2 text-[8px] text-gray-600 font-mono uppercase tracking-wider">
             <span>🔒 Direct Payment</span>
