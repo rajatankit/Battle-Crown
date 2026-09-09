@@ -1,51 +1,71 @@
 import { NextResponse } from "next/server";
 import { prisma } from "../../../lib/prisma";
-import { adminAuth } from "../../../lib/firebase-admin";
+import { getVerifiedUid } from "../../../lib/auth";
 
-export async function GET(req) {
+// GET /api/payment/status?order_id=bc_12_34_1234567890
+//
+// The webhook (app/api/webhooks/cashfree/route.js) is what actually
+// confirms payment and creates the EntryPayment row — this route just
+// checks whether that's happened yet, for the post-redirect UI to poll.
+// It does NOT verify payment itself and never writes anything.
+export async function GET(request) {
   try {
-    const authHeader = req.headers.get("authorization") || "";
-    const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-
-    if (!idToken) {
-      return NextResponse.json({ success: false, message: "Missing auth token" }, { status: 401 });
+    const uid = await getVerifiedUid(request);
+    if (!uid) {
+      return NextResponse.json(
+        { success: false, message: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
-    let decoded;
-    try {
-      decoded = await adminAuth.verifyIdToken(idToken);
-    } catch (err) {
-      return NextResponse.json({ success: false, message: "Invalid or expired token" }, { status: 401 });
-    }
-
-    const { searchParams } = new URL(req.url);
+    const { searchParams } = new URL(request.url);
     const orderId = searchParams.get("order_id");
-
     if (!orderId) {
-      return NextResponse.json({ success: false, message: "order_id required" }, { status: 400 });
+      return NextResponse.json(
+        { success: false, message: "order_id is required" },
+        { status: 400 }
+      );
     }
 
+    const user = await prisma.user.findUnique({ where: { uid } });
+    if (!user) {
+      return NextResponse.json(
+        { success: false, message: "User not found" },
+        { status: 404 }
+      );
+    }
+
+    // orderId format: bc_{tournamentId}_{userId}_{timestamp}
+    const parts = orderId.split("_");
+    const orderUserId = parts.length === 4 ? Number(parts[2]) : null;
+    if (orderUserId !== user.id) {
+      return NextResponse.json(
+        { success: false, message: "Order does not belong to this user" },
+        { status: 403 }
+      );
+    }
+
+    // Find any EntryPayment for this tournament created around the same
+    // order — matched via description containing the orderId (set by the
+    // webhook), since paymentGatewayId is Cashfree's own id, not ours.
     const payment = await prisma.entryPayment.findFirst({
-      where: { paymentGatewayId: orderId },
-      include: { user: true },
+      where: {
+        userId: user.id,
+        status: "PAID",
+        description: { contains: orderId },
+      },
     });
 
-    if (!payment) {
-      return NextResponse.json({ success: false, message: "Payment record not found" }, { status: 404 });
+    if (payment) {
+      return NextResponse.json({ success: true, status: "PAID", payment });
     }
 
-    if (payment.user.uid !== decoded.uid) {
-      return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 403 });
-    }
-
-    return NextResponse.json({
-      success: true,
-      status: payment.status, // PENDING | PAID | FAILED | REFUNDED
-      orderId: payment.paymentGatewayId,
-      tournamentId: payment.tournamentId,
-    });
+    return NextResponse.json({ success: true, status: "PENDING" });
   } catch (error) {
     console.error("Payment status check error:", error);
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return NextResponse.json(
+      { success: false, message: error.message || "Failed to check payment status" },
+      { status: 500 }
+    );
   }
 }

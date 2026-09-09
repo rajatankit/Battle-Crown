@@ -31,25 +31,47 @@ function DashboardContent() {
   // Small helper passed down to WalletTab/PaymentHistory so they can
   // authenticate their own fetches without duplicating Firebase logic.
   const getIdToken = async () => {
-  const currentUser = auth.currentUser;
-
-  if (!currentUser) {
-    return null;
-  }
-
-  try {
-    return await currentUser.getIdToken();
-  } catch (error) {
-    console.error("Firebase ID token error:", error);
-    return null;
-  }
-};
+    const currentUser = auth.currentUser;
+    if (!currentUser) return null;
+    return currentUser.getIdToken();
+  };
 
   // ─── Payment Verify Logic ───────────────────────────────────────────────
   // After the Cashfree redirect comes back with ?order_id=..., poll our own
   // status endpoint. The webhook is the actual source of truth — this is
   // just UI feedback, so it retries a few times in case the webhook hasn't
   // landed yet.
+  useEffect(() => {
+    const orderId = searchParams.get("order_id");
+    if (orderId) {
+      checkPaymentStatus(orderId);
+    }
+  }, [searchParams]);
+
+  async function checkPaymentStatus(orderId, attempt = 1) {
+    try {
+      const token = await getIdToken();
+      const res = await fetch(`/api/payment/status?order_id=${encodeURIComponent(orderId)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json();
+
+      if (data.success && data.status === "PAID") {
+        alert("🎉 Tournament joined successfully!");
+        window.history.replaceState({}, document.title, "/dashboard");
+        return;
+      }
+
+      if (attempt < 5) {
+        setTimeout(() => checkPaymentStatus(orderId, attempt + 1), 2000);
+      } else {
+        alert("Payment is still processing — check your Match History shortly.");
+        window.history.replaceState({}, document.title, "/dashboard");
+      }
+    } catch (error) {
+      console.error("Payment status check error:", error);
+    }
+  }
 
   // ─── Bottom-nav tab switcher ──────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState("home"); // "home" | "battles" | "wallet" | "profile"
@@ -242,90 +264,6 @@ function DashboardContent() {
 
     return () => unsubscribe();
   }, []);
-
-
-  // Firebase auth restore hone ke baad hi authenticated work start karo.
-useEffect(() => {
-  if (!firebaseUser) return;
-
-  const orderId = searchParams.get("order_id");
-  if (!orderId) return;
-
-  let cancelled = false;
-
-  const checkStatus = async (attempt = 1) => {
-    try {
-      const currentUser = auth.currentUser;
-
-      if (!currentUser) {
-        if (attempt < 5 && !cancelled) {
-          setTimeout(() => checkStatus(attempt + 1), 2000);
-        }
-        return;
-      }
-
-      const token = await currentUser.getIdToken();
-
-      if (!token) {
-        console.warn("Firebase ID token unavailable.");
-        return;
-      }
-
-      const response = await fetch(
-        `/api/payment/status?order_id=${encodeURIComponent(orderId)}`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          cache: "no-store",
-        }
-      );
-
-      const data = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        console.error(
-          "Status API failed:",
-          response.status,
-          data
-        );
-        return;
-      }
-
-      console.log("Status API:", data);
-
-      // Keep your existing non-payment UI handling here.
-      if (data?.success && data?.status === "PAID") {
-        if (!cancelled) {
-          alert("Status confirmed.");
-          window.history.replaceState(
-            {},
-            document.title,
-            "/dashboard"
-          );
-        }
-        return;
-      }
-
-      if (attempt < 5 && !cancelled) {
-        setTimeout(() => checkStatus(attempt + 1), 2000);
-      }
-    } catch (error) {
-      console.error("Status check failed:", error);
-
-      if (attempt < 5 && !cancelled) {
-        setTimeout(() => checkStatus(attempt + 1), 2000);
-      }
-    }
-  };
-
-  checkStatus();
-
-  return () => {
-    cancelled = true;
-  };
-}, [firebaseUser, searchParams]);
 
   // ─── Auto-refresh level every 15 seconds — no manual refresh needed ────────
   useEffect(() => {
