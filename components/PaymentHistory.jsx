@@ -37,7 +37,7 @@ export default function PaymentHistory({ userEmail, getIdToken = async () => nul
     try {
       setLoadingPayments(true);
       const token = await getIdToken();
-      const res = await fetch("/api/user/entry-payments", {
+      const res = await fetch("/api/user/entry-payments?email=${encodeURIComponent(userEmail)}", {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const data = await res.json();
@@ -54,7 +54,7 @@ export default function PaymentHistory({ userEmail, getIdToken = async () => nul
     try {
       setLoadingRewards(true);
       const token = await getIdToken();
-      const res = await fetch("/api/user/rewards", {
+     const res = await fetch(`/api/user/rewards?email=${encodeURIComponent(userEmail)}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const data = await res.json();
@@ -93,17 +93,17 @@ export default function PaymentHistory({ userEmail, getIdToken = async () => nul
     try {
       setSubmitting(true);
       const token = await getIdToken();
-      const res = await fetch("/api/wallet/withdraw", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          tournamentRewardId: withdrawTarget.id,
-          upiId: upiId.trim(),
-        }),
-      });
+      const res = await fetch(`/api/rewards/${withdrawTarget.id}/payout`, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  },
+  body: JSON.stringify({
+    upiId: upiId.trim(),
+    email: userEmail,
+  }),
+});
       const data = await res.json();
       if (data.success) {
         setMessage("✅ Withdrawal request submitted! Admin will verify and pay within 24 hours.");

@@ -2,6 +2,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import SupportChat from "../components/SupportChat"; 
 import Footer from "../components/Footer";
+import Script from "next/script"
 
 
 const geistSans = Geist({
@@ -32,6 +33,10 @@ export default function RootLayout({ children }) {
         className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       >
         {children}
+        <Script
+  src="https://sdk.cashfree.com/js/v3/cashfree.js"
+  strategy="beforeInteractive"
+/>
         <SupportChat /> {/* 2. Yahan body ke andar component rakh de */}
 
         <Footer />

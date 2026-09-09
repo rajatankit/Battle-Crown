@@ -4,9 +4,17 @@ import { logCortexError } from "../../../lib/cortex/errorLogger";
 
 const prisma = new PrismaClient();
 
+// Cashfree test request ke liye
+export async function GET() {
+  return NextResponse.json({ status: "ok" }, { status: 200 });
+}
+
 export async function POST(req) {
   try {
-    const { orderId } = await req.json();
+    const body = await req.json();
+    
+    // Cashfree kabhi-kabhi alag format bhejta hai
+    const orderId = body.orderId || body.order_id || body.data?.order?.order_id;
 
     if (!orderId) {
       return NextResponse.json(
@@ -33,7 +41,6 @@ export async function POST(req) {
       });
     }
 
-    // Status update + joinedCount increase
     await prisma.$transaction([
       prisma.entryPayment.update({
         where: { id: payment.id },

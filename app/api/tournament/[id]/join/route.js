@@ -1,5 +1,3 @@
-// app/api/tournament/[id]/join/route.js
-
 import { NextResponse } from "next/server";
 import { prisma } from "../../../../lib/prisma";
 import { getVerifiedUid } from "../../../../lib/auth";
@@ -7,9 +5,18 @@ import { logCortexError } from "../../../../lib/cortex/errorLogger";
 
 export async function POST(req, { params }) {
   try {
-    const tournamentId = parseInt(params.id);
+    // Next.js 15+ / Turbopack mein params Promise ho sakta hai
+    const resolvedParams = await Promise.resolve(params);
+    const idParam = resolvedParams?.id;
 
-    // 1. Verify Firebase token — client-sent email par bharosa nahi karte
+    if (!idParam) {
+      return NextResponse.json(
+        { success: false, message: "Tournament ID is required" },
+        { status: 400 }
+      );
+    }
+
+    // 1. Auth — Firebase token se uid
     const uid = await getVerifiedUid(req);
     if (!uid) {
       return NextResponse.json(
@@ -21,9 +28,8 @@ export async function POST(req, { params }) {
     const body = await req.json().catch(() => ({}));
     const { whatsapp, ign, uid: gameUid } = body;
 
-    // 2. User lookup by Firebase uid (token se, body se nahi)
+    // 2. User lookup
     const user = await prisma.user.findUnique({ where: { uid } });
-
     if (!user) {
       return NextResponse.json(
         { success: false, message: "User not found" },
@@ -33,10 +39,24 @@ export async function POST(req, { params }) {
 
     const email = user.email;
 
-    // 3. Tournament check
-    const tournament = await prisma.tournament.findUnique({
-      where: { id: tournamentId },
-    });
+    // 3. Tournament resolve — number id YA firestoreId dono support
+    let tournament = null;
+
+    const numericId = parseInt(idParam, 10);
+
+    if (!isNaN(numericId) && String(numericId) === String(idParam).trim()) {
+      // Pure number hai
+      tournament = await prisma.tournament.findUnique({
+        where: { id: numericId },
+      });
+    }
+
+    if (!tournament) {
+      // Firestore ID se try karo
+      tournament = await prisma.tournament.findUnique({
+        where: { firestoreId: String(idParam) },
+      });
+    }
 
     if (!tournament) {
       return NextResponse.json(
@@ -45,6 +65,9 @@ export async function POST(req, { params }) {
       );
     }
 
+    const tournamentId = tournament.id; // Ab hamesha valid Prisma id
+
+    // 4. Status & slots check
     if (tournament.status !== "upcoming") {
       return NextResponse.json(
         { success: false, message: "Registration closed" },
@@ -59,9 +82,7 @@ export async function POST(req, { params }) {
       );
     }
 
-    // 4. Already joined check — sirf PAID dekhte hain.
-    // PENDING/incomplete attempts ko block nahi karte, kyunki wo
-    // ab DB mein record hi nahi hote (webhook hi PAID record banata hai).
+    // 5. Already joined (sirf PAID)
     const alreadyJoined = await prisma.entryPayment.findFirst({
       where: {
         userId: user.id,
@@ -88,35 +109,40 @@ export async function POST(req, { params }) {
     const appId = process.env.CASHFREE_APP_ID;
     const secretKey = process.env.CASHFREE_SECRET_KEY;
 
-    // IMPORTANT: format must match what the webhook expects to parse:
-    // bc_{tournamentId}_{userId}_{timestamp} — lowercase "bc", no T/U prefixes
-    const orderId = `bc_${tournamentId}_${user.id}_${Date.now()}`;
-    const description = `Tournament Entry Fee - ${tournament.title} - ${tournament.id}`;
+    if (!appId || !secretKey) {
+      return NextResponse.json(
+        { success: false, message: "Payment gateway not configured" },
+        { status: 500 }
+      );
+    }
 
-    // Cashfree order create
-    const cashfreeRes = await fetch("https://sandbox.cashfree.com/pg/orders", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-client-id": appId,
-        "x-client-secret": secretKey,
-        "x-api-version": "2023-08-01",
-      },
-      body: JSON.stringify({
-        order_amount: amount,
-        order_currency: "INR",
-        order_id: orderId,
-        order_note: description,
-        customer_details: {
-          customer_id: email.replace(/[^a-zA-Z0-9_]/g, "_"),
-          customer_email: email,
-          customer_phone: whatsapp || "9999999999",
-        },
-        order_meta: {
-          return_url: `https://battle-crown.vercel.app/dashboard?order_id=${orderId}&tournament_id=${tournamentId}`,
-        },
-      }),
-    });
+    // orderId format — webhook ke saath match kare
+    const orderId = "bc_" + String(tournamentId) + "_" + String(user.id) + "_" + Date.now();
+const description = "Tournament Entry Fee - " + tournament.title + " - " + tournament.id;
+
+const cashfreeRes = await fetch("https://sandbox.cashfree.com/pg/orders", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "x-client-id": appId,
+    "x-client-secret": secretKey,
+    "x-api-version": "2023-08-01",
+  },
+  body: JSON.stringify({
+    order_amount: amount,
+    order_currency: "INR",
+    order_id: orderId,
+    order_note: description,
+    customer_details: {
+      customer_id: email.replace(/[^a-zA-Z0-9_]/g, "_"),
+      customer_email: email,
+      customer_phone: whatsapp || "9999999999",
+    },
+    order_meta: {
+      return_url: "https://battle-crown.vercel.app/dashboard?order_id=" + orderId + "&tournament_id=" + tournamentId,
+    },
+  }),
+});
 
     const data = await cashfreeRes.json();
 
@@ -129,13 +155,7 @@ export async function POST(req, { params }) {
       );
     }
 
-    // NOTE: koi EntryPayment record yahan nahi banate. Source of truth
-    // sirf webhook hai (app/api/webhooks/cashfree/route.js), jo payment
-    // confirm hone par seedha PAID record banata hai — idempotent hai
-    // (cfPaymentId se duplicate-safe), aur race-condition-safe hai
-    // (joinedCount transaction ke andar increment hota hai).
-
-    // Join form ke ign/uid se user ka game profile update kar dete hain
+    // 7. Game profile update (optional)
     if (ign || gameUid) {
       const game = (tournament.game || "").toLowerCase();
       const isFreeFire = game.includes("free");
@@ -146,6 +166,8 @@ export async function POST(req, { params }) {
           : { bgmiIgn: ign || user.bgmiIgn, bgmiUid: gameUid || user.bgmiUid },
       });
     }
+
+    // Note: EntryPayment record webhook banayega (source of truth)
 
     return NextResponse.json({
       success: true,

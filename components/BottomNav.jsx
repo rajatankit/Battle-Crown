@@ -8,7 +8,7 @@
 const NAV_ITEMS = [
   { key: "home", icon: "🏠", label: "Home" },
   { key: "battles", icon: "⚔️", label: "Battles" },
-  { key: "wallet", icon: "💼", label: "Wallet" },
+  { key: "wallet", icon: "💳", label: "Rewards" },
   { key: "profile", icon: "👤", label: "Profile" },
 ];
 

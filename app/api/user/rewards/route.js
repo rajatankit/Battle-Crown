@@ -1,38 +1,41 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../lib/prisma";
-import { adminAuth } from "../../../lib/firebase-admin";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
 
 export async function GET(req) {
   try {
-    const authHeader = req.headers.get("authorization") || "";
-    const idToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    const { searchParams } = new URL(req.url);
+    const email = searchParams.get("email");
 
-    if (!idToken) {
-      return NextResponse.json({ success: false, error: "Missing auth token" }, { status: 401 });
+    if (!email) {
+      return NextResponse.json({ success: false, message: "email required" }, { status: 400 });
     }
 
-    let decoded;
-    try {
-      decoded = await adminAuth.verifyIdToken(idToken);
-    } catch (err) {
-      return NextResponse.json({ success: false, error: "Invalid or expired token" }, { status: 401 });
-    }
+    const user = await prisma.user.findUnique({
+      where: { email },
+    });
 
-    const user = await prisma.user.findUnique({ where: { uid: decoded.uid } });
     if (!user) {
-      return NextResponse.json({ success: false, error: "User not found" }, { status: 404 });
+      return NextResponse.json({ success: false, message: "User not found" }, { status: 404 });
     }
 
     const rewards = await prisma.tournamentReward.findMany({
       where: { userId: user.id },
-      include: { tournament: { select: { title: true } } },
       orderBy: { createdAt: "desc" },
-      take: 50,
+      include: {
+        tournament: {
+          select: { title: true },
+        },
+      },
     });
 
-    return NextResponse.json({ success: true, rewards });
+    return NextResponse.json({
+      success: true,
+      rewards,
+    });
   } catch (error) {
-    console.error("Rewards fetch error:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    console.error("Rewards error:", error);
+    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
 }

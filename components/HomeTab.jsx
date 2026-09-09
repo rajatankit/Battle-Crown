@@ -534,19 +534,13 @@ export default function HomeTab({
             {Math.max(matchesNeededForNext - matchesTowardNext, 0)} matches to reach Level {playerLevel + 1}
           </p>
           <div className="flex gap-4 mt-3 pt-3 border-t border-gray-800">
-            <div className="flex items-center gap-1.5">
-              <span className="text-yellow-400">👑</span>
-              <span className="text-[11px] text-gray-300">
-                Crowns <strong className="text-white">{crowns}</strong>
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-cyan-400">🛡️</span>
-              <span className="text-[11px] text-gray-300">
-                Protection <strong className="text-white">{protectionPoints}</strong>
-              </span>
-            </div>
-          </div>
+  <div className="flex items-center gap-1.5">
+    <span className="text-cyan-400">🛡️</span>
+    <span className="text-[11px] text-gray-300">
+      Protection <strong className="text-white">{protectionPoints}</strong>
+    </span>
+  </div>
+</div>
         </div>
       </div>
 
