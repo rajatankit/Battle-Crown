@@ -6,7 +6,13 @@ const prisma = new PrismaClient();
 
 export async function POST(req, { params }) {
   try {
-    const rewardId = parseInt(params.rewardId);
+    const resolvedParams = await Promise.resolve(params);
+    const rewardId = parseInt(resolvedParams.rewardId);
+
+    if (isNaN(rewardId)) {
+      return NextResponse.json({ success: false, error: "Invalid reward ID" }, { status: 400 });
+    }
+
     const body = await req.json();
     const { upiId, email } = body;
 

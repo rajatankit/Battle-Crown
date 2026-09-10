@@ -55,40 +55,127 @@ function DashboardContent() {
     }
   }, [searchParams, firebaseUser]);
 
-  async function checkPaymentStatus(orderId, attempt = 1) {
-    try {
-      const token = await getIdToken();
+ async function checkPaymentStatus(orderId, attempt = 1) {
+  const MAX_ATTEMPTS = 15;
+  const RETRY_DELAY = 2000;
 
-      if (!token) {
-        // Firebase session not ready yet — retry shortly instead of
-        // firing an unauthenticated request that will just 401.
-        if (attempt < 5) {
-          setTimeout(() => checkPaymentStatus(orderId, attempt + 1), 1500);
-        }
-        return;
+  try {
+    const token = await getIdToken();
+
+    if (!token) {
+      if (attempt < MAX_ATTEMPTS) {
+        setTimeout(
+          () => checkPaymentStatus(orderId, attempt + 1),
+          1500
+        );
       }
 
-      const res = await fetch(`/api/payment/status?order_id=${encodeURIComponent(orderId)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
+      return;
+    }
 
-      if (data.success && data.status === "PAID") {
-        alert("🎉 Tournament joined successfully!");
-        window.history.replaceState({}, document.title, "/dashboard");
-        return;
+    const res = await fetch(
+      `/api/payment/status?order_id=${encodeURIComponent(orderId)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        cache: "no-store",
+      }
+    );
+
+    const data = await res.json();
+
+    console.log(
+      `Payment status attempt ${attempt}:`,
+      data
+    );
+
+    // ───────────────────────────────────────
+    // PAYMENT SUCCESS
+    // ───────────────────────────────────────
+    if (
+      res.ok &&
+      data.success &&
+      data.status === "PAID"
+    ) {
+      alert(
+        "🎉 Tournament joined successfully!"
+      );
+
+      window.history.replaceState(
+        {},
+        document.title,
+        "/dashboard"
+      );
+
+      // Refresh dashboard data
+      if (firebaseUser) {
+        await refreshUserProfile(
+          firebaseUser.uid,
+          firebaseUser.email,
+          firebaseUser.displayName
+        );
       }
 
-      if (attempt < 5) {
-        setTimeout(() => checkPaymentStatus(orderId, attempt + 1), 2000);
-      } else {
-        alert("Payment is still processing — check your Match History shortly.");
-        window.history.replaceState({}, document.title, "/dashboard");
-      }
-    } catch (error) {
-      console.error("Payment status check error:", error);
+      return;
+    }
+
+    // ───────────────────────────────────────
+    // PAYMENT FAILED
+    // ───────────────────────────────────────
+    if (
+      data.status === "FAILED" ||
+      data.status === "CANCELLED"
+    ) {
+      alert(
+        `Payment ${String(data.status).toLowerCase()}. Please try again.`
+      );
+
+      window.history.replaceState(
+        {},
+        document.title,
+        "/dashboard"
+      );
+
+      return;
+    }
+
+    // ───────────────────────────────────────
+    // STILL PROCESSING
+    // ───────────────────────────────────────
+    if (attempt < MAX_ATTEMPTS) {
+      setTimeout(
+        () => checkPaymentStatus(orderId, attempt + 1),
+        RETRY_DELAY
+      );
+
+      return;
+    }
+
+    alert(
+      "Payment is still being verified. Please check Match History after a few moments."
+    );
+
+    window.history.replaceState(
+      {},
+      document.title,
+      "/dashboard"
+    );
+
+  } catch (error) {
+    console.error(
+      "Payment status check error:",
+      error
+    );
+
+    if (attempt < MAX_ATTEMPTS) {
+      setTimeout(
+        () => checkPaymentStatus(orderId, attempt + 1),
+        RETRY_DELAY
+      );
     }
   }
+}
 
   // ─── Bottom-nav tab switcher ──────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState("home"); // "home" | "battles" | "wallet" | "profile"
@@ -553,7 +640,7 @@ function DashboardContent() {
 
       {isMatchHistoryOpen && (
   <MatchHistoryModal
-    email={loggedInUserEmail}  // tumhara actual logged-in user email variable
+    email={UserEmail}  // tumhara actual logged-in user email variable
     onClose={() => setIsMatchHistoryOpen(false)}
   />
 )}

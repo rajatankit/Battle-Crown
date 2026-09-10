@@ -37,7 +37,7 @@ export default function PaymentHistory({ userEmail, getIdToken = async () => nul
     try {
       setLoadingPayments(true);
       const token = await getIdToken();
-      const res = await fetch("/api/user/entry-payments?email=${encodeURIComponent(userEmail)}", {
+      const res = await fetch(`/api/user/entry-payments?email=${encodeURIComponent(userEmail)}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const data = await res.json();
@@ -187,7 +187,7 @@ export default function PaymentHistory({ userEmail, getIdToken = async () => nul
             </div>
           )}
 
-          // Entry payment history — ab har payment ke saath uska reward status bhi dikhega
+          {/* Entry payment history — ab har payment ke saath uska reward status bhi dikhega */}
 <div className="rounded-xl border border-gray-800/80 bg-black/30 overflow-hidden">
   <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800/80">
     <div>

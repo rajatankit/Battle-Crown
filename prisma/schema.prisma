@@ -121,7 +121,7 @@ model EntryPayment {
   tournamentId     Int
   matchId          Int?
   amount           Float
-  paymentGatewayId String?       // Cashfree cf_payment_id
+  paymentGatewayId String?       @unique  // Cashfree cf_payment_id
   status           String        @default("PAID") // PAID | FAILED | REFUNDED
   description      String        // "Tournament Entry Fee - [Name] - [OrderId]"
   createdAt        DateTime      @default(now())
