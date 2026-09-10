@@ -1,6 +1,5 @@
-// app/api/user/match-history/route.js
 import { NextResponse } from "next/server";
-import { prisma } from "@/app/lib/prisma"; 
+import { prisma } from "../../../lib/prisma"; // apna path adjust karo
 
 export async function GET(req) {
   try {
@@ -8,12 +7,18 @@ export async function GET(req) {
     const email = searchParams.get("email");
 
     if (!email) {
-      return NextResponse.json({ success: false, error: "email is required" }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: "email required" },
+        { status: 400 }
+      );
     }
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      return NextResponse.json({ success: false, error: "User not found" }, { status: 404 });
+      return NextResponse.json(
+        { success: false, error: "User not found" },
+        { status: 404 }
+      );
     }
 
     const matches = await prisma.matchHistory.findMany({
@@ -21,31 +26,36 @@ export async function GET(req) {
       orderBy: { createdAt: "desc" },
       take: 10,
       include: {
-        tournament: { select: { id: true, title: true, game: true, map: true } },
-        entryPayments: { select: { amount: true, status: true }, take: 1 },
-        tournamentReward: { select: { amount: true, status: true, reason: true } },
+        tournament: { select: { title: true, game: true, mode: true } },
+        entryPayments: { take: 1, orderBy: { createdAt: "desc" } },
+        tournamentReward: true,
       },
     });
 
-    const mapped = matches.map((m) => ({
-      id: m.id,
-      dbMatchId: m.id,
-      tournamentName: m.tournament?.title || "Tournament",
-      mapName: m.map || m.tournament?.map || "-",
-      gameType: m.game || m.tournament?.game || "-",
-      joinTime: m.createdAt,
-      entryFeePaid: m.entryPayments[0]?.amount ?? 0,
-      paymentStatus: m.entryPayments[0]?.status ?? "UNKNOWN",
-      screenshotUrl: m.screenshotUrl,
-      resultStatus: m.resultStatus, // UNVERIFIED | ADMIN_REVIEW | VERIFIED | REJECTED
-      rewardAmount: m.tournamentReward?.amount ?? 0,
-      rewardStatus: m.tournamentReward?.status ?? "NO_REWARD",
-      rewardReason: m.tournamentReward?.reason ?? null,
-    }));
+    const mapped = matches.map((m) => {
+      const payment = m.entryPayments?.[0];
+      const reward = m.tournamentReward;
+
+      return {
+        id: m.id,
+        dbMatchId: m.id,
+        tournamentName: m.tournament?.title || "Tournament",
+        gameType: m.game || m.tournament?.game || "-",
+        entryFeePaid: payment?.amount ?? 0,
+        paymentStatus: payment?.status ?? "UNKNOWN",
+        resultStatus: m.resultStatus || "UNVERIFIED",
+        rewardAmount: reward?.amount ?? 0,
+        rewardStatus: reward?.status ?? "NO_REWARD",
+        screenshotUrl: m.screenshotUrl,
+      };
+    });
 
     return NextResponse.json({ success: true, matches: mapped });
   } catch (error) {
-    console.error("Match history fetch error:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    console.error("Match history error:", error);
+    return NextResponse.json(
+      { success: false, error: error.message },
+      { status: 500 }
+    );
   }
 }

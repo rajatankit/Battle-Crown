@@ -640,7 +640,7 @@ function DashboardContent() {
 
       {isMatchHistoryOpen && (
   <MatchHistoryModal
-    email={UserEmail}  // tumhara actual logged-in user email variable
+    email={userEmail}  // tumhara actual logged-in user email variable
     onClose={() => setIsMatchHistoryOpen(false)}
   />
 )}

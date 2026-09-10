@@ -66,7 +66,7 @@ export async function GET(req) {
       };
     });
 
-    return NextResponse.json({ success: true, history });
+    return NextResponse.json({ success: true, payments: history });
   } catch (error) {
     console.error("Tournament history fetch error:", error);
     return NextResponse.json({ success: false, message: error.message }, { status: 500 });

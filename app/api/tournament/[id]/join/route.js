@@ -167,6 +167,19 @@ const cashfreeRes = await fetch("https://sandbox.cashfree.com/pg/orders", {
       });
     }
 
+
+    // PENDING EntryPayment record banao
+await prisma.entryPayment.create({
+  data: {
+    userId: user.id,
+    tournamentId: tournamentId,
+    amount: amount,
+    paymentGatewayId: orderId,
+    status: "PENDING",
+    description: description,
+  },
+});
+
     // Note: EntryPayment record webhook banayega (source of truth)
 
     return NextResponse.json({
