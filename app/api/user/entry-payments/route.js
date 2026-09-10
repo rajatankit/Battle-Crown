@@ -22,7 +22,7 @@ export async function GET(req) {
       take: 10,
       include: {
         tournament: {
-          select: { id: true, title: true, game: true, startTime: true },
+          select: { id: true, title: true, game: true, mode: true, startTime: true },
         },
         match: {
           select: {
@@ -52,6 +52,7 @@ export async function GET(req) {
         tournamentId: e.tournament.id,
         tournamentName: e.tournament.title,
         game: e.tournament.game,
+        mode: e.tournament.mode,
         startTime: e.tournament.startTime,
         entryFeePaid: e.amount,
         paymentStatus: e.status,

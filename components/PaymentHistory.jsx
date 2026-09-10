@@ -187,14 +187,20 @@ export default function PaymentHistory({ userEmail, getIdToken = async () => nul
             </div>
           )}
 
-          {/* Entry payment history — ab har payment ke saath uska reward status bhi dikhega */}
+          {/* Entry payment history */}
 <div className="rounded-xl border border-gray-800/80 bg-black/30 overflow-hidden">
   <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800/80">
     <div>
-      <p className="text-[9px] text-cyan-500/80 font-mono tracking-[0.18em] uppercase">// Entry Payments</p>
-      <h4 className="text-sm font-black text-white uppercase tracking-wider mt-0.5">What You've Paid</h4>
+      <p className="text-[9px] text-cyan-500/80 font-mono tracking-[0.18em] uppercase">
+        // Entry Payments
+      </p>
+      <h4 className="text-sm font-black text-white uppercase tracking-wider mt-0.5">
+        What You've Paid
+      </h4>
     </div>
-    <span className="text-[8px] text-gray-500 font-mono uppercase">{payments.length} Records</span>
+    <span className="text-[8px] text-gray-500 font-mono uppercase">
+      {payments.length} Records
+    </span>
   </div>
 
   <div className="max-h-[320px] overflow-y-auto">
@@ -205,23 +211,50 @@ export default function PaymentHistory({ userEmail, getIdToken = async () => nul
       </div>
     ) : payments.length === 0 ? (
       <div className="p-8 text-center">
-        <div className="mx-auto w-10 h-10 rounded-xl bg-gray-900 border border-gray-800 flex items-center justify-center mb-3">💳</div>
+        <div className="mx-auto w-10 h-10 rounded-xl bg-gray-900 border border-gray-800 flex items-center justify-center mb-3">
+          💳
+        </div>
         <p className="text-xs text-gray-400 font-bold">No Payments Yet</p>
-        <p className="text-[9px] text-gray-600 font-mono mt-1">Tournament entry payments will appear here.</p>
+        <p className="text-[9px] text-gray-600 font-mono mt-1">
+          Tournament entry payments will appear here.
+        </p>
       </div>
     ) : (
       <div className="divide-y divide-gray-800/60">
-        {payments.map((p) => {
+        {payments.map((p, index) => {
+          const title =
+            p.tournamentName ||
+            p.tournament?.title ||
+            p.description ||
+            "Tournament Entry Fee";
+
+          const game = (p.game || p.tournament?.game || "").toUpperCase();
+          const mode = p.mode || p.tournament?.mode || "";
+          const amount = Number(p.entryFeePaid ?? p.amount ?? 0);
+          const status = p.paymentStatus || p.status || "—";
+
           const date = p.createdAt
             ? new Date(p.createdAt).toLocaleString("en-IN", {
-                day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
               })
             : "";
 
-          // Is tournament ke liye reward status dhoondo (agar koi hai)
-          const matchedReward = rewards.find((r) => r.tournamentId === p.tournamentId);
+          const matchedReward = rewards.find(
+            (r) =>
+              r.tournamentId === p.tournamentId ||
+              r.tournamentId === p.tournament?.id
+          );
 
-          let rewardBadge = null;
+          let rewardBadge = (
+            <span className="text-[8px] font-mono uppercase px-1.5 py-0.5 rounded bg-gray-900/60 text-gray-500 border border-gray-800/60">
+              No Reward Yet
+            </span>
+          );
+
           if (matchedReward) {
             if (matchedReward.status === "PAID") {
               rewardBadge = (
@@ -236,31 +269,37 @@ export default function PaymentHistory({ userEmail, getIdToken = async () => nul
                 </span>
               );
             }
-          } else {
-            rewardBadge = (
-              <span className="text-[8px] font-mono uppercase px-1.5 py-0.5 rounded bg-gray-900/60 text-gray-500 border border-gray-800/60">
-                No Reward Yet
-              </span>
-            );
           }
 
           return (
-            <div key={p.id} className="px-4 py-3 hover:bg-white/[0.02] transition">
+            <div
+              key={p.id || p.tournamentId || index}
+              className="px-4 py-3 hover:bg-white/[0.02] transition"
+            >
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 shrink-0 rounded-lg border flex items-center justify-center bg-red-950/30 border-red-800/50">
                   <span className="text-sm">↘</span>
                 </div>
+
                 <div className="flex-1 min-w-0">
                   <p className="text-[10px] text-white font-bold truncate">
-                    {p.tournament?.title || p.description || "Tournament Entry Fee"}
+                    {title}
                   </p>
-                  <p className="text-[8px] text-gray-600 font-mono mt-0.5">{date}</p>
+                  <p className="text-[8px] text-gray-500 font-mono mt-0.5">
+                    {game}
+                    {mode ? ` • ${mode}` : ""}
+                    {date ? ` • ${date}` : ""}
+                  </p>
                 </div>
+
                 <div className="text-right shrink-0">
-                  <p className="text-xs font-black text-red-400">-₹{Number(p.amount || 0)}</p>
-                  <p className="text-[7px] text-gray-600 uppercase font-mono mt-0.5">{p.status}</p>
+                  <p className="text-xs font-black text-red-400">-₹{amount}</p>
+                  <p className="text-[7px] text-gray-600 uppercase font-mono mt-0.5">
+                    {status}
+                  </p>
                 </div>
               </div>
+
               <div className="mt-2 ml-12">{rewardBadge}</div>
             </div>
           );
