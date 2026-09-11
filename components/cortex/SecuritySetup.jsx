@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { startRegistration } from "@simplewebauthn/browser";
 import PatternLock from "./PatternLock";
 import { recordWavSample } from "@/app/lib/client/wavRecorder";
@@ -22,6 +22,24 @@ export default function SecuritySetup({ authToken, onComplete }) {
     if (authToken) h.Authorization = `Bearer ${authToken}`;
     return h;
   };
+
+  useEffect(() => {
+    async function checkExistingStatus() {
+      try {
+        const res = await fetch("/api/cortex/security/status", { headers: headers() });
+        const data = await res.json();
+        if (data.success) {
+          if (data.biometricReady) setBiometricDone(true);
+          if (data.patternReady) setPatternDone(true);
+          if (data.voiceReady) setVoiceDone(true);
+        }
+      } catch {
+        // silent fail — user can still complete manually
+      }
+    }
+    checkExistingStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const registerBiometric = async () => {
     setStatus("Requesting biometric registration...");
