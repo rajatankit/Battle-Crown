@@ -83,20 +83,21 @@ export async function POST(req, { params }) {
     }
 
     // 5. Already joined (sirf PAID)
-    const alreadyJoined = await prisma.entryPayment.findFirst({
-      where: {
-        userId: user.id,
-        tournamentId,
-        status: "PAID",
-      },
-    });
+    // ⚠️ TEMPORARILY DISABLED FOR TESTING — RE-ENABLE BEFORE GOING LIVE!
+    // const alreadyJoined = await prisma.entryPayment.findFirst({
+    //   where: {
+    //     userId: user.id,
+    //     tournamentId,
+    //     status: "PAID",
+    //   },
+    // });
 
-    if (alreadyJoined) {
-      return NextResponse.json(
-        { success: false, message: "Already joined this tournament" },
-        { status: 400 }
-      );
-    }
+    // if (alreadyJoined) {
+    //   return NextResponse.json(
+    //     { success: false, message: "Already joined this tournament" },
+    //     { status: 400 }
+    //   );
+    // }
 
     const amount = parseFloat(tournament.entryFee || "0");
     if (!amount || amount <= 0) {
