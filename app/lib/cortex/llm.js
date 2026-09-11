@@ -443,6 +443,10 @@ async function askGroq(userText, systemPrompt) {
  const data = await response.json();
   const raw = data?.choices?.[0]?.message?.content?.trim() || "";
   console.log("[CORTEX LLM RAW - Groq]:", JSON.stringify(raw));
+  console.log("[CORTEX LLM DEBUG]:", JSON.stringify({
+    finish_reason: data?.choices?.[0]?.finish_reason,
+    usage: data?.usage,
+  }));
   return parseLLMOutput(raw);
 }
 
