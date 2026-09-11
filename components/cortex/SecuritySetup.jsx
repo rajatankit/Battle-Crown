@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { startRegistration } from "@simplewebauthn/browser";
 import PatternLock from "./PatternLock";
+import { recordWavSample } from "@/app/lib/client/wavRecorder";
 
 export default function SecuritySetup({ authToken, onComplete }) {
   const [status, setStatus] = useState("");
@@ -78,25 +79,7 @@ export default function SecuritySetup({ authToken, onComplete }) {
   // --------------------------------------------------
 
   const recordOneSample = (durationMs = 3000) => {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const recorder = new MediaRecorder(stream);
-        const chunks = [];
-
-        recorder.ondataavailable = (e) => chunks.push(e.data);
-        recorder.onstop = () => {
-          stream.getTracks().forEach((t) => t.stop());
-          resolve(new Blob(chunks, { type: "audio/webm" }));
-        };
-        recorder.onerror = (e) => reject(e.error || new Error("Recording failed"));
-
-        recorder.start();
-        setTimeout(() => recorder.stop(), durationMs);
-      } catch (err) {
-        reject(err);
-      }
-    });
+    return recordWavSample(durationMs);
   };
 
   const startVoiceEnrollment = async () => {
@@ -117,7 +100,7 @@ export default function SecuritySetup({ authToken, onComplete }) {
 
       const formData = new FormData();
       voiceSamplesRef.current.forEach((blob, idx) => {
-        formData.append("samples", blob, `sample-${idx}.webm`);
+        formData.append("samples", blob, `sample-${idx}.wav`);
       });
 
       const authHeaders = {};
