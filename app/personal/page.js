@@ -249,7 +249,7 @@ export default function PersonalAssistantPage() {
       }
 
       user
-        .getIdToken()
+        .getIdToken(true)
         .then(async (token) => {
           idTokenRef.current = token;
 
@@ -424,16 +424,6 @@ export default function PersonalAssistantPage() {
     setTranscript("");
     setReply("");
     setListening(true);
-
-    if (!unlockedRef.current) {
-      recordWavSample(3000)
-        .then((blob) => {
-          pendingUnlockAudioRef.current = blob;
-        })
-        .catch(() => {
-          pendingUnlockAudioRef.current = null;
-        });
-    }
 
     try {
       recognitionRef.current.start();
@@ -624,12 +614,15 @@ export default function PersonalAssistantPage() {
 
     if (!unlockedRef.current) {
       if (text.includes("cortex unlock") || text.includes("cortex, unlock")) {
-        const audioBlob = pendingUnlockAudioRef.current;
-        pendingUnlockAudioRef.current = null;
+        setReply("Awaz confirm karo — 3 second bolo, jaise 'yes boss'...");
+        speak("Awaz confirm karo, 3 second bolo.");
 
-        if (!audioBlob) {
-          setReply("Boss, audio capture nahi hui, dobara tap karke try karo.");
-          speak("Dobara try karo.");
+        let audioBlob;
+        try {
+          audioBlob = await recordWavSample(3000);
+        } catch {
+          setReply("Boss, mic access nahi mila. Permission check karo.");
+          speak("Mic access nahi mila.");
           return;
         }
 
@@ -646,7 +639,7 @@ export default function PersonalAssistantPage() {
           const payload = await res.json();
 
           if (!payload.success || !payload.verified) {
-            setReply("Access denied. Voice match nahi hua, Boss.");
+            setReply(`Access denied. Score: ${payload.score?.toFixed(3) || "?"}`);
             speak("Access denied.");
             return;
           }
