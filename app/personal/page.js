@@ -68,6 +68,16 @@ function detectPersonalMsgIntent(text) {
   return /\b(ko message|ko bhejo|personal message)\b/.test(t) && !detectGlobalMsgIntent(text);
 }
 
+function detectNotificationIntent(text) {
+  const t = text.toLowerCase();
+  return (
+    /notification/.test(t) &&
+    !detectGlobalMsgIntent(text) &&
+    !detectPersonalMsgIntent(text) &&
+    !detectRoomDetailsIntent(text)
+  );
+}
+
 function detectPlayerListIntent(text) {
   const t = text.toLowerCase();
   return /(kis\s*kis|kaun\s*kaun|players?\s*(dikhao|list))/.test(t) && /join/.test(t);
@@ -983,6 +993,27 @@ export default function PersonalAssistantPage() {
           return;
         }
       }
+      
+      // NOTIFY CHOICE flow (generic "notification bhejo" — ask global ya personal)
+      if (flow.type === "notify_choice") {
+        if (flow.step === "await_type") {
+          if (/\b(sabko|sab|global|everyone|sabhi)\b/.test(text)) {
+            notifyFlowRef.current = { type: "global", step: "await_message" };
+            setReply("Boss, kya message sabko bhejna hai?");
+            speak("Kya message bhejna hai?");
+            return;
+          }
+          if (/\b(specific|ek player|kisi|personal|individual|ek user)\b/.test(text)) {
+            notifyFlowRef.current = { type: "personal", step: "await_identifier" };
+            setReply("Boss, kisko bhejna hai? Naam, email ya UID boliye.");
+            speak("Kisko bhejna hai?");
+            return;
+          }
+          setReply('Boss, "sabko" ya "specific player" boliye.');
+          speak("Sabko ya specific player boliye.");
+          return;
+        }
+      }
 
       // ADMIN ACTION flow (generic delete/update, double confirmation)
       if (flow.type === "admin_action") {
@@ -1084,6 +1115,13 @@ export default function PersonalAssistantPage() {
       notifyFlowRef.current = { type: "personal", step: "await_identifier" };
       setReply("Boss, kisko bhejna hai? Naam, email ya UID boliye.");
       speak("Kisko bhejna hai?");
+      return;
+    }
+
+    if (detectNotificationIntent(text)) {
+      notifyFlowRef.current = { type: "notify_choice", step: "await_type" };
+      setReply("Boss, sabko bhejni hai ya kisi specific player ko?");
+      speak("Sabko bhejni hai ya kisi specific player ko?");
       return;
     }
 
