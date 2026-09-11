@@ -14,11 +14,13 @@ export async function GET(request) {
   const patternReady = Boolean(
     security.patternHash && security.patternSalt
   );
+  const voiceReady = Boolean(security.voiceProfile);
 
   return NextResponse.json({
     success: true,
     biometricReady,
     patternReady,
-    ready: biometricReady && patternReady,
+    voiceReady,
+    ready: biometricReady && patternReady && voiceReady,
   });
 }
