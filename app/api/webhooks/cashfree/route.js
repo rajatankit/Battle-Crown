@@ -3,6 +3,7 @@
 import { prisma } from "@/app/lib/prisma";
 import { verifyCashfreeSignature } from "@/app/lib/cashfree";
 import { NextResponse } from "next/server";
+import { logCortexError } from "@/app/lib/cortex/errorLogger";
 
 export async function POST(req) {
   let rawBody;
@@ -230,6 +231,7 @@ export async function POST(req) {
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("Webhook: transaction failed:", err);
+    await logCortexError("webhooks/cashfree", err);
     return NextResponse.json({ error: "Processing failed" }, { status: 500 });
   }
 }

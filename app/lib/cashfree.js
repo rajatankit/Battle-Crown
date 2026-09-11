@@ -11,6 +11,7 @@
 // Docs reference: Cashfree Payment Gateway API version 2023-08-01
 
 import crypto from "crypto";
+import { logCortexError } from "@/app/lib/cortex/errorLogger";
 
 const CASHFREE_BASE_URL =
   process.env.CASHFREE_ENV === "PROD"
