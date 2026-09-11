@@ -50,12 +50,11 @@ function cosineSimilarity(a, b) {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-// audioBuffersRaw = array of raw webm audio buffers (3+ recommended)
+// audioBuffersRaw = array of raw WAV buffers (3+ recommended)
 export async function enrollVoiceProfile(audioBuffersRaw) {
   const vectors = [];
 
   for (const raw of audioBuffersRaw) {
-    const pcmBuffer = await convertToPcm16k(raw);
     const samples = parseWavToInt16(raw);
     const floatSamples = int16ToFloat32(samples);
     const vec = extractMfccVector(floatSamples);
@@ -79,12 +78,11 @@ export async function enrollVoiceProfile(audioBuffersRaw) {
   return JSON.stringify(avgProfile);
 }
 
-// storedProfileJson = string from DB, audioBufferRaw = fresh sample to check
+// storedProfileJson = string from DB, audioBufferRaw = fresh WAV sample to check
 export async function verifyVoice(audioBufferRaw, storedProfileJson) {
   const storedProfile = JSON.parse(storedProfileJson);
 
-  const pcmBuffer = await convertToPcm16k(audioBufferRaw);
-  const samples = bufferToInt16Array(pcmBuffer);
+  const samples = parseWavToInt16(audioBufferRaw);
   const floatSamples = int16ToFloat32(samples);
   const vec = extractMfccVector(floatSamples);
 
