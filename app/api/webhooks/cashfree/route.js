@@ -4,6 +4,7 @@ import { prisma } from "@/app/lib/prisma";
 import { verifyCashfreeSignature } from "@/app/lib/cashfree";
 import { NextResponse } from "next/server";
 import { logCortexError } from "@/app/lib/cortex/errorLogger";
+import { adminDb } from "@/app/lib/firebase-admin";
 
 export async function POST(req) {
   let rawBody;
@@ -161,7 +162,7 @@ export async function POST(req) {
   // ─────────────────────────────────────────────
   // 7. DATABASE TRANSACTION
   // ─────────────────────────────────────────────
- try {
+  try {
     await prisma.$transaction(async (tx) => {
       const existingPayment = await tx.entryPayment.findFirst({
         where: { paymentGatewayId: cfPaymentId },
@@ -226,6 +227,21 @@ export async function POST(req) {
       });
 
       console.log(`Tournament ${tournamentId} joinedCount incremented`);
+
+      // Also sync joinedCount to Firestore (frontend reads from here)
+      if (tournament.firestoreId) {
+        try {
+          await adminDb
+            .collection("tournaments")
+            .doc(tournament.firestoreId)
+            .update({
+              joinedCount: tournament.joinedCount + 1,
+            });
+          console.log(`Firestore joinedCount synced for ${tournament.firestoreId}`);
+        } catch (fsErr) {
+          console.error("Firestore joinedCount sync failed:", fsErr);
+        }
+      }
     });
 
     return NextResponse.json({ ok: true });
