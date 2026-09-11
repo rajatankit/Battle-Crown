@@ -1,5 +1,5 @@
 import Meyda from "meyda";
-import { convertToPcm16k, bufferToInt16Array } from "../audio/convertToPcm";
+import { parseWavToInt16 } from "@/app/lib/audio/parseWav";
 
 const FRAME_SIZE = 1024;
 const HOP_SIZE = 512;
@@ -56,7 +56,7 @@ export async function enrollVoiceProfile(audioBuffersRaw) {
 
   for (const raw of audioBuffersRaw) {
     const pcmBuffer = await convertToPcm16k(raw);
-    const samples = bufferToInt16Array(pcmBuffer);
+    const samples = parseWavToInt16(raw);
     const floatSamples = int16ToFloat32(samples);
     const vec = extractMfccVector(floatSamples);
     if (vec) vectors.push(vec);

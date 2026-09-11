@@ -5,6 +5,7 @@ import { auth } from "../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 
 import CortexCore from "./CortexCore";
+import { recordWavSample } from "../lib/client/wavRecorder";
 import VerificationModal from "../../components/cortex/VerificationModal";
 import SecuritySetup from "../../components/cortex/SecuritySetup";
 
@@ -77,6 +78,19 @@ function detectMemoryQueryIntent(text) {
   return /\b(kal|pichli baar|pehle maine|yaad hai|kya baat hui|kya bola tha|kya kaha tha)\b/.test(t);
 }
 
+function detectAdminActionIntent(text) {
+  const t = text.toLowerCase();
+  const hasVerb = /\b(delete|hatao|remove|mita do|update karo|badal do|change karo)\b/.test(t);
+  const hasTarget = /\b(record|row|entry|data|database|tournament|player|user|wallet|transaction|withdrawal|notification|alert|memory)\b/.test(t);
+  return hasVerb && hasTarget;
+}
+
+function isStrongConfirm(text, operation) {
+  const t = text.toLowerCase().replace(/\s+/g, " ").trim();
+  if (operation === "delete") return /\b(pakka delete karo|confirm delete|haan pakka delete)\b/.test(t);
+  return /\b(pakka update karo|confirm update|haan pakka update)\b/.test(t);
+}
+
 export default function PersonalAssistantPage() {
   const [state, setState] = useState({
     loading: true,
@@ -128,6 +142,7 @@ export default function PersonalAssistantPage() {
   const speechQueueRef = useRef([]);
   const speakingRef = useRef(false);
   const currentAudioRef = useRef(null);
+  const pendingUnlockAudioRef = useRef(null);
 
   useEffect(() => {
     unlockedRef.current = unlocked;
@@ -404,12 +419,21 @@ export default function PersonalAssistantPage() {
     }
     if (unlocked && phase < 6) return;
 
-    // Barge-in: agar CORTEX abhi bol raha hai, turant chup karo
     interruptSpeech();
 
     setTranscript("");
     setReply("");
     setListening(true);
+
+    if (!unlockedRef.current) {
+      recordWavSample(3000)
+        .then((blob) => {
+          pendingUnlockAudioRef.current = blob;
+        })
+        .catch(() => {
+          pendingUnlockAudioRef.current = null;
+        });
+    }
 
     try {
       recognitionRef.current.start();
@@ -417,7 +441,6 @@ export default function PersonalAssistantPage() {
       setListening(false);
     }
   }
-
   // --------------------------------------------------
   // PARSE VERIFICATION_REQUIRED (legacy text-based fallback)
   // Format: VERIFICATION_REQUIRED:fingerprint+face:<requestId>
@@ -600,14 +623,42 @@ export default function PersonalAssistantPage() {
     const text = commandText.trim().toLowerCase();
 
     if (!unlockedRef.current) {
-      if (
-        text.includes("cortex unlock") ||
-        text.includes("cortex, unlock")
-      ) {
-        unlockedRef.current = true;
-        setUnlocked(true);
-        setPhase(0);
-        setReply("Activation sequence initiated.");
+      if (text.includes("cortex unlock") || text.includes("cortex, unlock")) {
+        const audioBlob = pendingUnlockAudioRef.current;
+        pendingUnlockAudioRef.current = null;
+
+        if (!audioBlob) {
+          setReply("Boss, audio capture nahi hui, dobara tap karke try karo.");
+          speak("Dobara try karo.");
+          return;
+        }
+
+        setReply("Voice verify ho raha hai...");
+
+        try {
+          const form = new FormData();
+          form.append("sample", audioBlob, "sample.wav");
+
+          const res = await fetch("/api/cortex/security/voice/verify", {
+            method: "POST",
+            body: form,
+          });
+          const payload = await res.json();
+
+          if (!payload.success || !payload.verified) {
+            setReply("Access denied. Voice match nahi hua, Boss.");
+            speak("Access denied.");
+            return;
+          }
+
+          unlockedRef.current = true;
+          setUnlocked(true);
+          setPhase(0);
+          setReply("Voice verified. Activation sequence initiated.");
+          speak("Voice verified.");
+        } catch {
+          setReply("Voice check karte waqt error aaya.");
+        }
         return;
       }
 
@@ -890,7 +941,7 @@ export default function PersonalAssistantPage() {
         }
       }
 
-      // PLAYER LIST flow
+     // PLAYER LIST flow
       if (flow.type === "player_list") {
         if (flow.step === "await_title") {
           notifyFlowRef.current = null;
@@ -933,6 +984,85 @@ export default function PersonalAssistantPage() {
             speak(msg);
           } catch {
             setReply("Error aaya players dhoondhte waqt.");
+          } finally {
+            setBusy(false);
+          }
+          return;
+        }
+      }
+
+      // ADMIN ACTION flow (generic delete/update, double confirmation)
+      if (flow.type === "admin_action") {
+        if (flow.step === "choose") {
+          const num = parseInt(text.match(/\d+/)?.[0] || "", 10);
+          const target = flow.candidates?.[num - 1];
+          if (!target) {
+            setReply("Boss, sahi number boliye jo list mein dikha.");
+            speak("Sahi number boliye.");
+            return;
+          }
+          flow.target = target;
+          flow.step = "confirm1";
+          const preview = JSON.stringify(target);
+          const msg = `Confirm karu? ${flow.operation} karna hai — ${preview}. Bolo "haan".`;
+          setReply(msg);
+          speak("Confirm karo, haan boliye.");
+          return;
+        }
+
+        if (flow.step === "confirm1") {
+          const answer = parseYesNo(text);
+          if (answer === "no") {
+            notifyFlowRef.current = null;
+            setReply("Theek hai Boss, cancel kar diya.");
+            speak("Cancel kar diya.");
+            return;
+          }
+          if (answer !== "yes") {
+            setReply('Boss, "haan" ya "nahi" boliye.');
+            return;
+          }
+          flow.step = "confirm2";
+          const strongPhrase =
+            flow.operation === "delete" ? "HAAN PAKKA DELETE KARO" : "HAAN PAKKA UPDATE KARO";
+          const msg = `Boss, ye undo nahi hoga. Pakka karna hai? Exactly bolo: "${strongPhrase}"`;
+          setReply(msg);
+          speak(`Pakka karna hai to bolo, ${strongPhrase}`);
+          return;
+        }
+
+        if (flow.step === "confirm2") {
+          if (!isStrongConfirm(text, flow.operation)) {
+            const strongPhrase =
+              flow.operation === "delete" ? "HAAN PAKKA DELETE KARO" : "HAAN PAKKA UPDATE KARO";
+            setReply(`Boss, exact phrase boliye: "${strongPhrase}", ya "cancel" bolke rok do.`);
+            speak("Exact phrase boliye ya cancel bolo.");
+            return;
+          }
+
+          setBusy(true);
+          try {
+            const res = await fetch("/api/personal/admin/execute", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${idTokenRef.current}`,
+              },
+              body: JSON.stringify({
+                model: flow.model,
+                operation: flow.operation,
+                id: flow.target[Object.keys(flow.target)[0]],
+                updates: flow.updates,
+              }),
+            });
+            const payload = await res.json();
+            notifyFlowRef.current = null;
+
+            setReply(payload.success ? payload.message : `Error: ${payload.error}`);
+            speak(payload.success ? "Ho gaya, Boss." : "Error aaya.");
+          } catch {
+            notifyFlowRef.current = null;
+            setReply("Error aaya execute karte waqt.");
           } finally {
             setBusy(false);
           }
