@@ -311,3 +311,15 @@ model ConversationLog {
 
   @@index([userId, createdAt])
 }
+
+model AtlasDraft {
+  id             Int      @id @default(1)
+  active         Boolean  @default(false)
+  stage          String   @default("idle") // idle | options | await_path | preview
+  request        String?
+  path           String?
+  optionsJson    Json?
+  selectedOption Int?
+  generatedCode  String?
+  updatedAt      DateTime @updatedAt
+}

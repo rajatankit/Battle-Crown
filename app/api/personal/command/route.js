@@ -19,6 +19,18 @@ import {
   isNegative,
   isCancelWord,
 } from "../../../lib/cortex/tournamentWizard";
+import { askCortexRaw } from "../../../lib/cortex/llm";
+import {
+  getAtlasDraft,
+  startAtlasDraft,
+  updateAtlasDraft,
+  resetAtlasDraft,
+  isAtlasFixIntent,
+  extractFilenameFromText,
+  isCancelWordAtlas,
+  isAffirmativeAtlas,
+  isNegativeAtlas,
+} from "../../../lib/cortex/atlasWizard";
 
 function chatResponse(message, agent = "CORTEX") {
   return NextResponse.json({
@@ -371,6 +383,176 @@ async function runDuplicateCheck(draft) {
 }
 
 // ============================================
+// ATLAS ENGINEERING WIZARD
+// ============================================
+
+async function generateOptions(request) {
+  const prompt = `Tum ek senior software engineer ho jo Battle Crown esports platform (Next.js + Prisma + Python backend) pe kaam karte ho.
+
+User ka problem/request: "${request}"
+
+2-3 alag-alag solution approaches suggest karo is problem ke liye. Har approach:
+- title: chhota naam (4-6 words)
+- description: 1-2 sentence mein kya karega
+
+Sirf ek JSON array return karo, kuch aur text nahi:
+[{"title": "...", "description": "..."}]`;
+
+  const raw = await askCortexRaw(prompt);
+  const cleaned = raw.replace(/```json|```/g, "").trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    return null;
+  }
+}
+
+async function generateCode({ request, chosenOption, fileContent, path }) {
+  const prompt = `Tum ek senior software engineer ho. Chosen approach: "${chosenOption}"
+
+Original request: "${request}"
+
+${
+  fileContent
+    ? `Current file (${path}):\n\`\`\`\n${fileContent}\n\`\`\``
+    : `File abhi khaali/naya hai: ${path}`
+}
+
+Is file ka COMPLETE updated content likho jo ye approach implement kare. Sirf raw code do - koi explanation, koi markdown backticks nahi, seedha file content jo save hoga.`;
+
+  const raw = await askCortexRaw(prompt);
+  return raw.replace(/^```[\w]*\n?/, "").replace(/```$/, "").trim();
+}
+
+async function proceedToCodeGen(draft, chosen, idx) {
+  let fileContent = null;
+  try {
+    const readResult = await cortexDispatch({
+      agentId: "ATLAS",
+      action: "read_code",
+      task: "atlas_read_before_edit",
+      context: { repo: "battlecrown", path: draft.path },
+    });
+    if (readResult?.status === "ok") fileContent = readResult.content;
+  } catch {
+    // file naya ho sakta hai, read fail hona normal hai
+  }
+
+  const code = await generateCode({
+    request: draft.request,
+    chosenOption: `${chosen.title}: ${chosen.description}`,
+    fileContent,
+    path: draft.path,
+  });
+
+  if (!code) {
+    await resetAtlasDraft();
+    return chatResponse("Boss, code generate nahi ho paya. Dobara try karo.", "ATLAS");
+  }
+
+  await updateAtlasDraft({
+    stage: "preview",
+    path: draft.path,
+    selectedOption: idx,
+    generatedCode: code,
+  });
+
+  const preview = code.length > 400 ? code.slice(0, 400) + "\n...(truncated)" : code;
+
+  return NextResponse.json({
+    success: true,
+    result: {
+      success: true,
+      agent: "ATLAS",
+      message: `Boss, "${chosen.title}" implement kar raha hoon ${draft.path} mein. Confirm karu commit karne ke liye?`,
+      code_preview: preview,
+    },
+  });
+}
+
+async function handleAtlasTurn(draft, command) {
+  if (isCancelWordAtlas(command)) {
+    await resetAtlasDraft();
+    return chatResponse("Theek hai Boss, cancel kar diya.", "ATLAS");
+  }
+
+  if (draft.stage === "options") {
+    const idx = parseInt(command.match(/\d+/)?.[0] || "", 10) - 1;
+    const options = draft.optionsJson || [];
+    if (Number.isNaN(idx) || idx < 0 || idx >= options.length) {
+      return chatResponse("Boss, sahi number boliye jo list mein dikha.", "ATLAS");
+    }
+
+    const chosen = options[idx];
+    const existingPath = draft.path || extractFilenameFromText(draft.request || "");
+
+    if (!existingPath) {
+      await updateAtlasDraft({ stage: "await_path", selectedOption: idx });
+      return chatResponse(
+        `"${chosen.title}" chuna. Boss, kis file mein change karna hai? Filename boliye.`,
+        "ATLAS"
+      );
+    }
+
+    return await proceedToCodeGen({ ...draft, path: existingPath }, chosen, idx);
+  }
+
+  if (draft.stage === "await_path") {
+    const path = command.trim();
+    const options = draft.optionsJson || [];
+    const chosen = options[draft.selectedOption];
+    if (!chosen) {
+      await resetAtlasDraft();
+      return chatResponse("Boss, kuch gadbad ho gayi, dobara try karo.", "ATLAS");
+    }
+    return await proceedToCodeGen({ ...draft, path }, chosen, draft.selectedOption);
+  }
+
+  if (draft.stage === "preview") {
+    if (isNegativeAtlas(command)) {
+      await resetAtlasDraft();
+      return chatResponse("Theek hai Boss, cancel kar diya.", "ATLAS");
+    }
+    if (!isAffirmativeAtlas(command)) {
+      return chatResponse('Boss, "haan" boliye commit karne ke liye, ya "cancel" boliye.', "ATLAS");
+    }
+
+    try {
+      const result = await cortexDispatch({
+        agentId: "ATLAS",
+        action: "commit_code",
+        task: "atlas_commit",
+        context: {
+          path: draft.path,
+          code: draft.generatedCode,
+          message: `CORTEX/ATLAS: ${draft.request}`,
+        },
+      });
+
+      const { needsApprove, msg, verificationMatch } = detectApproval(result);
+      if (needsApprove) {
+        await resetAtlasDraft();
+        return approvalRequiredResponse({ result, msg, verificationMatch, agentId: "ATLAS" });
+      }
+
+      const committedPath = draft.path;
+      await resetAtlasDraft();
+
+      if (result?.status === "committed" || result?.success) {
+        return chatResponse(`Ho gaya Boss, ${committedPath} commit ho gaya. GitHub pe check kar lo.`, "ATLAS");
+      }
+      return chatResponse(`Boss, commit fail ho gaya: ${result?.message || "unknown error"}`, "ATLAS");
+    } catch (err) {
+      await resetAtlasDraft();
+      await logCortexError("personal/command:atlas_commit", err);
+      return chatResponse("Boss, commit karte waqt error aaya.", "ATLAS");
+    }
+  }
+
+  await resetAtlasDraft();
+  return chatResponse("Boss, kuch gadbad ho gayi, dobara try karo.", "ATLAS");
+}
+// ============================================
 // SINGLE-STEP DISPATCH (now passes through any
 // LLM-extracted params, e.g. status/game/uid/name)
 // ============================================
@@ -440,8 +622,24 @@ export async function POST(request) {
         return await handleWizardTurn(draft, command, uid);
       }
 
+      const atlasDraft = await getAtlasDraft();
+      if (atlasDraft && atlasDraft.active) {
+        return await handleAtlasTurn(atlasDraft, command);
+      }
+
       if (command && isTournamentCreateIntent(command)) {
         return await handleWizardStart();
+      }
+
+      if (command && isAtlasFixIntent(command)) {
+        const options = await generateOptions(command);
+        if (!options || options.length === 0) {
+          return chatResponse("Boss, options generate nahi ho paye. Dobara bolo, thoda clearly.", "ATLAS");
+        }
+        await startAtlasDraft(command);
+        await updateAtlasDraft({ optionsJson: options });
+        const listing = options.map((o, i) => `${i + 1}: ${o.title} — ${o.description}`).join(" | ");
+        return chatResponse(`Boss, ${options.length} options hain — ${listing}. Number boliye.`, "ATLAS");
       }
     }
 
