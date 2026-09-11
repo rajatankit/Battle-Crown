@@ -440,8 +440,9 @@ async function askGroq(userText, systemPrompt) {
     throw new Error(`Groq error ${response.status}: ${errText.slice(0, 200)}`);
   }
 
-  const data = await response.json();
+ const data = await response.json();
   const raw = data?.choices?.[0]?.message?.content?.trim() || "";
+  console.log("[CORTEX LLM RAW - Groq]:", JSON.stringify(raw));
   return parseLLMOutput(raw);
 }
 
@@ -484,6 +485,7 @@ async function askGemini(userText, systemPrompt) {
   const data = await response.json();
   const raw =
     data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+  console.log("[CORTEX LLM RAW - Gemini]:", JSON.stringify(raw));
   return parseLLMOutput(raw);
 }
 
