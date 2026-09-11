@@ -3,7 +3,7 @@ import { parseWavToInt16 } from "@/app/lib/audio/parseWav";
 
 const FRAME_SIZE = 1024;
 const HOP_SIZE = 512;
-const VERIFY_THRESHOLD = 0.9; // 0-1, jitna zyada utna strict
+const VERIFY_THRESHOLD = 0.55; // 0-1, jitna zyada utna strict
 
 Meyda.sampleRate = 16000;
 Meyda.bufferSize = FRAME_SIZE;
