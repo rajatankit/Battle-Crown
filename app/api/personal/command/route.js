@@ -648,10 +648,25 @@ async function handleAtlasTurn(draft, command) {
       }
 
       const committedPath = draft.path;
+      const request = draft.request;
       await resetAtlasDraft();
 
       if (result?.status === "committed" || result?.success) {
-        return chatResponse(`Ho gaya Boss, ${committedPath} commit ho gaya. GitHub pe check kar lo.`, "ATLAS");
+        if (result?.commit_sha) {
+          await prisma.atlasCommitLog.create({
+            data: {
+              path: committedPath,
+              commitSha: result.commit_sha,
+              previousContent: result.previous_content || null,
+              request,
+              status: "pending",
+            },
+          });
+        }
+        return chatResponse(
+          `Ho gaya Boss, ${committedPath} commit ho gaya. Build check kar raha hoon, result batadunga.`,
+          "ATLAS"
+        );
       }
       return chatResponse(`Boss, commit fail ho gaya: ${result?.message || "unknown error"}`, "ATLAS");
     } catch (err) {

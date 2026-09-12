@@ -342,3 +342,14 @@ model DbWriteDraft {
   generatedSql String?
   updatedAt    DateTime @updatedAt
 }
+
+model AtlasCommitLog {
+  id             Int      @id @default(autoincrement())
+  path           String
+  commitSha      String
+  previousContent String?  @db.Text
+  status         String   @default("pending") // pending | success | failed | reverted
+  request        String?
+  createdAt      DateTime @default(now())
+  resolvedAt     DateTime?
+}

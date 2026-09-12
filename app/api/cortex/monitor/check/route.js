@@ -53,21 +53,21 @@ export async function GET(request) {
     const ownerToken = await getOwnerFcmToken();
     const createdAlerts = [];
 
-    // ---- 1. New deposits ----
-    const deposits = await prisma.walletTransaction.findMany({
-      where: { type: "Deposit", createdAt: { gt: since, lte: now } },
+   // ---- 1. New entry payments (Cashfree tournament entry fees) ----
+    const payments = await prisma.entryPayment.findMany({
+      where: { status: "PAID", createdAt: { gt: since, lte: now } },
       include: { user: true },
     });
-    for (const tx of deposits) {
-      const severity = classifyAmount(Math.abs(tx.amount || 0));
-      const title = `Deposit: ₹${tx.amount}`;
-      const message = `${tx.user?.name || tx.user?.email || "User"} ne ₹${tx.amount} deposit kiya.`;
+    for (const p of payments) {
+      const severity = classifyAmount(Math.abs(p.amount || 0));
+      const title = `Entry Payment: ₹${p.amount}`;
+      const message = `${p.user?.name || p.user?.email || "User"} ne ₹${p.amount} entry fee pay ki.`;
       const alert = await prisma.alert.create({
-        data: { type: "deposit", severity, title, message, refId: String(tx.id) },
+        data: { type: "entry_payment", severity, title, message, refId: String(p.id) },
       });
       createdAlerts.push(alert);
     }
-
+    
     // ---- 2. New withdrawal requests ----
     const withdrawals = await prisma.withdrawalRequest.findMany({
       where: { createdAt: { gt: since, lte: now } },
