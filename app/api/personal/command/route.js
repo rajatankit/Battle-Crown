@@ -31,8 +31,20 @@ import {
   isAffirmativeAtlas,
   isNegativeAtlas,
 } from "../../../lib/cortex/atlasWizard";
-import { DB_SCHEMA_CONTEXT } from "../../../lib/cortex/schemaContext";
+import { getDbSchemaContext } from "../../../lib/cortex/schemaContext";
 import { runSafeQuery } from "../../../lib/cortex/dbQuery";
+import { runWriteQuery } from "../../../lib/cortex/dbQuery";
+import {
+  getDbWriteDraft,
+  startDbWriteDraft,
+  updateDbWriteDraft,
+  resetDbWriteDraft,
+  isDbWriteIntent,
+  isAffirmativeWrite,
+  isNegativeWrite,
+  isStrongConfirmWrite,
+} from "../../../lib/cortex/dbWriteWizard";
+import { getCortexContext, setLastTournament, setLastPlayer, hasPronounReference, resolvePronouns } from "../../../lib/cortex/context";
 
 function chatResponse(message, agent = "CORTEX") {
   return NextResponse.json({
@@ -219,13 +231,34 @@ function formatToolReply(step, result) {
   return null;
 }
 
+ async function updateContextFromResult(step, result) {
+  try {
+    const data = result?.data;
+    if (!data) return;
+
+    if (step.action === "read_tournament" && data.tournament) {
+      await setLastTournament({
+        pk: data.tournament.id,
+        title: data.tournament.title,
+        firestoreId: null,
+      });
+    }
+
+    if (step.action === "read_player_data" && data.player) {
+      await setLastPlayer({ id: data.player.id, name: data.player.name });
+    }
+  } catch {
+    // context update is best-effort, never block the main response
+  }
+}
+
 function looksLikeDataQuestion(text) {
   const t = text.toLowerCase();
   return /\b(kitne|kitna|kaun|kya|list|dikhao|status|kab|players?|tournament|wallet|balance|withdrawal|transaction|history|join|score|record)\b/.test(t);
 }
 
 async function tryDatabaseFallback(command) {
-  const sqlPrompt = `${DB_SCHEMA_CONTEXT}
+  const sqlPrompt = `${getDbSchemaContext()}
 
 Boss ka sawaal: "${command}"
 
@@ -255,6 +288,45 @@ Isse chhota natural jawaab do (1-3 sentences). Khaali result ho to bolo koi data
     console.error("DB fallback failed:", err);
     return null;
   }
+}
+
+async function handleDbWriteTurn(draft, command) {
+  if (isNegativeWrite(command) || /\bcancel\b/i.test(command)) {
+    await resetDbWriteDraft();
+    return chatResponse("Theek hai Boss, cancel kar diya.", "CORTEX");
+  }
+
+  if (draft.stage === "confirm1") {
+    if (!isAffirmativeWrite(command)) {
+      return chatResponse('Boss, "haan" ya "cancel" boliye.', "CORTEX");
+    }
+    await updateDbWriteDraft({ stage: "confirm2" });
+    return chatResponse(
+      'Boss, ye undo nahi hoga. Pakka karna hai? Exactly bolo: "haan pakka update karo"',
+      "CORTEX"
+    );
+  }
+
+  if (draft.stage === "confirm2") {
+    if (!isStrongConfirmWrite(command)) {
+      return chatResponse(
+        'Boss, exact phrase boliye: "haan pakka update karo", ya "cancel" boliye.',
+        "CORTEX"
+      );
+    }
+
+    try {
+      const count = await runWriteQuery(draft.generatedSql);
+      await resetDbWriteDraft();
+      return chatResponse(`Ho gaya Boss, ${count} row(s) update hui.`, "CORTEX");
+    } catch (err) {
+      await resetDbWriteDraft();
+      return chatResponse(`Boss, update fail ho gaya: ${err.message}`, "CORTEX");
+    }
+  }
+
+  await resetDbWriteDraft();
+  return chatResponse("Boss, kuch gadbad ho gayi.", "CORTEX");
 }
 
 // ============================================
@@ -667,6 +739,11 @@ export async function POST(request) {
         return await handleAtlasTurn(atlasDraft, command);
       }
 
+      const dbWriteDraft = await getDbWriteDraft();
+      if (dbWriteDraft && dbWriteDraft.active) {
+        return await handleDbWriteTurn(dbWriteDraft, command);
+      }
+
       if (command && isTournamentCreateIntent(command)) {
         return await handleWizardStart();
       }
@@ -681,6 +758,28 @@ export async function POST(request) {
         const listing = options.map((o, i) => `${i + 1}: ${o.title} — ${o.description}`).join(" | ");
         return chatResponse(`Boss, ${options.length} options hain — ${listing}. Number boliye.`, "ATLAS");
       }
+
+      if (command && isDbWriteIntent(command)) {
+        const sqlPrompt = `${getDbSchemaContext()}
+
+Boss ka command: "${command}"
+
+Is command ko poora karne ke liye ek single PostgreSQL UPDATE query likho. Rules:
+- Sirf UPDATE query
+- WHERE clause zaroori hai
+- Table/column naam double quotes mein
+- Sirf raw SQL do, koi explanation, koi markdown nahi`;
+
+        const rawSql = await askCortexRaw(sqlPrompt);
+        const sql = rawSql.replace(/```sql|```/gi, "").trim();
+
+        await startDbWriteDraft(command, sql);
+
+        return chatResponse(
+          `Boss, ye query chalाऊँga: ${sql}. Confirm karu? "haan" boliye.`,
+          "CORTEX"
+        );
+      }
     }
 
     let steps;
@@ -688,7 +787,13 @@ export async function POST(request) {
     if (resumingSteps && resumingSteps.length > 0) {
       steps = resumingSteps;
     } else {
-      const llm = await askCortexLLM(command);
+      let effectiveCommand = command;
+      if (command && hasPronounReference(command)) {
+        const ctx = await getCortexContext();
+        effectiveCommand = resolvePronouns(command, ctx);
+      }
+
+      const llm = await askCortexLLM(effectiveCommand);
 
       if (Array.isArray(llm.memoryFacts) && llm.memoryFacts.length > 0) {
         for (const fact of llm.memoryFacts) {
@@ -766,6 +871,10 @@ export async function POST(request) {
           remainingSteps: steps.slice(i),
         });
       }
+
+      
+
+      await updateContextFromResult(step, result);
 
       let stepMessage =
         formatToolReply(step, result) ||

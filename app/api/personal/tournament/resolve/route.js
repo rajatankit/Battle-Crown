@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "../../../../lib/prisma";
 import { getJoinedUserIds } from "../../../../lib/notifications/getTournamentPlayers";
+import { setLastTournament } from "../../../../lib/cortex/context";
 
 function normalizeGameHint(text) {
   const t = text.toLowerCase();
@@ -74,6 +75,12 @@ export async function POST(req) {
     }
 
     const players = await getJoinedUserIds(tournament.firestoreId);
+
+    setLastTournament({
+      pk: tournament.id,
+      title: tournament.title,
+      firestoreId: tournament.firestoreId,
+    }).catch(() => {});
 
     return NextResponse.json({
       success: true,

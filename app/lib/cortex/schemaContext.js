@@ -1,25 +1,71 @@
-export const DB_SCHEMA_CONTEXT = `
-Battle Crown PostgreSQL database schema (columns camelCase hain, case-sensitive - hamesha double quotes mein likho):
+import fs from "fs";
+import path from "path";
 
-"User" (real accounts): "id" (int), "uid", "email", "name", "depositWallet", "winningsWallet", "crowns", "matchesPlayed", "level", "protectionPoints", "lastMatchAt", "createdAt", "bgmiIgn", "bgmiUid", "ffIgn", "ffUid", "fcmToken"
+const SCHEMA_PATH = path.join(process.cwd(), "prisma", "schema.prisma");
 
-"tournaments": "id" (int), "firestoreId", "title", "game", "map", "mode", "entryFee", "maxSlots", "joinedCount", "status", "createdAt", "firstPrize", "secondPrize", "thirdPrize", "killReward", "roomId", "roomPassword", "startTime", "reminderSent"
+const BLOCKED_MODELS = new Set([
+  "CortexSecurity",
+  "PersonalPasskey",
+  "PersonalPasskeyChallenge",
+]);
 
-"match_history": "id" (int), "userId" (int, "User"."id" se link), "tournamentName", "screenshotUrl", "mapName", "mode", "gameType", "entryFee", "maxSlots", "playerLevel", "ign", "uid", "whatsapp_number", "email", "kills", "prizeWon", "status", "createdAt", "tournamentId" (ye "tournaments"."firestoreId" se match karta hai, int id se nahi)
+let cachedContext = null;
+let cachedAt = 0;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 min - schema rarely changes at runtime
 
-"wallet_transactions": "id" (int), "userId" (int), "matchId" (int), "amount", "type", "description", "createdAt"
+function parseSchemaModels(schemaText) {
+  const modelRegex = /model\s+(\w+)\s*\{([^}]*)\}/g;
+  const models = [];
+  let match;
 
-"withdrawal_requests": "id" (int), "userId" (int), "amount", "upiId", "status", "createdAt", "updatedAt"
+  while ((match = modelRegex.exec(schemaText)) !== null) {
+    const name = match[1];
+    if (BLOCKED_MODELS.has(name)) continue;
 
-"Notification": "id", "type", "userId" (Firebase uid string, "User"."id" nahi), "title", "message", "read", "readBy" (array), "createdAt"
+    const body = match[2];
+    const fieldLines = body
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("//") && !l.startsWith("@@"));
 
-"Alert": "id" (int), "type", "severity", "title", "message", "refId", "notified", "acknowledged", "escalations", "createdAt"
+    const fields = fieldLines
+      .map((line) => {
+        const fieldMatch = line.match(/^(\w+)\s+([\w\[\]?]+)/);
+        return fieldMatch ? fieldMatch[1] : null;
+      })
+      .filter(Boolean);
 
-"ErrorLog": "id" (int), "route", "message", "stack", "createdAt", "alerted"
+    models.push({ name, fields });
+  }
 
-"CortexMemory": "id" (int), "fact", "createdAt"
+  return models;
+}
 
-"ConversationLog": "id" (int), "userId" (Firebase uid), "role" ("user"/"cortex"), "message", "createdAt"
+export function getDbSchemaContext() {
+  const now = Date.now();
+  if (cachedContext && now - cachedAt < CACHE_TTL_MS) {
+    return cachedContext;
+  }
 
-KABHI BHI "CortexSecurity", "PersonalPasskey", ya "PersonalPasskeyChallenge" query mat karo - ye security credentials hain, off-limits hain.
+  const schemaText = fs.readFileSync(SCHEMA_PATH, "utf-8");
+  const models = parseSchemaModels(schemaText);
+
+  const lines = models.map(
+    (m) => `"${m.name}": ${m.fields.map((f) => `"${f}"`).join(", ")}`
+  );
+
+  cachedContext = `
+Battle Crown PostgreSQL database schema (columns case-sensitive - hamesha double quotes mein likho):
+
+${lines.join("\n\n")}
+
+Notes:
+- "match_history" model ka DB table naam bhi "match_history" hai (lowercase), baaki models ke table naam unke model naam jaise hi hain (jaise "tournaments" @@map se).
+- "match_history"."tournamentId" "tournaments"."firestoreId" se match karta hai, "tournaments"."id" se nahi.
+- "Notification"."userId" aur "ConversationLog"."userId" Firebase uid (string) hain, "User"."id" (integer) nahi.
+- Security-related tables kabhi query mat karo (already is list mein exclude hain).
 `;
+
+  cachedAt = now;
+  return cachedContext;
+}

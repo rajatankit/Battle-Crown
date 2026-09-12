@@ -323,3 +323,22 @@ model AtlasDraft {
   generatedCode  String?
   updatedAt      DateTime @updatedAt
 }
+
+model CortexContext {
+  id                 Int      @id @default(1)
+  lastTournamentPk   Int?
+  lastTournamentTitle String?
+  lastFirestoreId    String?
+  lastPlayerId       Int?
+  lastPlayerName     String?
+  updatedAt          DateTime @updatedAt
+}
+
+model DbWriteDraft {
+  id           Int      @id @default(1)
+  active       Boolean  @default(false)
+  stage        String   @default("idle") // idle | confirm1 | confirm2
+  request      String?
+  generatedSql String?
+  updatedAt    DateTime @updatedAt
+}
