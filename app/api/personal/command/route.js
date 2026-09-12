@@ -5,6 +5,7 @@ import { askCortexLLM } from "../../../lib/cortex/llm";
 import { saveMemory } from "../../../lib/cortex/memory";
 import { logCortexError } from "../../../lib/cortex/errorLogger";
 import { prisma } from "../../../lib/prisma";
+import { messaging } from "../../../lib/firebase-admin";
 import {
   getDraft,
   startDraft,
@@ -44,6 +45,14 @@ import {
   isNegativeWrite,
   isStrongConfirmWrite,
 } from "../../../lib/cortex/dbWriteWizard";
+import {
+  getNotifyDraft,
+  startNotifyDraft,
+  updateNotifyDraft,
+  resetNotifyDraft,
+  isNotifyJoinersIntent,
+  isCancelWordNotify,
+} from "../../../lib/cortex/notificationWizard";
 import { getCortexContext, setLastTournament, setLastPlayer, hasPronounReference, resolvePronouns } from "../../../lib/cortex/context";
 
 function chatResponse(message, agent = "CORTEX") {
@@ -679,6 +688,170 @@ async function handleAtlasTurn(draft, command) {
   await resetAtlasDraft();
   return chatResponse("Boss, kuch gadbad ho gayi, dobara try karo.", "ATLAS");
 }
+
+// ============================================
+// ROOM-DETAILS NOTIFICATION WIZARD
+//
+// "T1 tournament ko jitne player ne join kiya un sabko room id
+// password bhej do" -> CORTEX asks for room id, then password,
+// then finds every PAID entrant of that tournament, saves an
+// in-app Notification row per player, and pushes an FCM
+// notification to every device token on file. No approval gate
+// on this one (matches the flow you described) — add one later
+// via detectApproval/approvalRequiredResponse if you want it.
+// ============================================
+
+async function extractTournamentTitleForNotify(command) {
+  const prompt = `Extract ONLY the tournament name mentioned in this sentence.
+Reply with just the name, no quotes, no extra words, no explanation.
+If broken Hinglish grammar surrounds it, still pull out just the name.
+
+Sentence: "${command}"`;
+
+  const raw = await askCortexRaw(prompt);
+  return raw.replace(/["'.]/g, "").trim();
+}
+
+async function sendRoomDetailsPush(tokens, tournamentTitle, roomId, roomPassword) {
+  if (!tokens.length) return { successCount: 0, failureCount: 0 };
+
+  const chunks = [];
+  for (let i = 0; i < tokens.length; i += 500) {
+    chunks.push(tokens.slice(i, i + 500));
+  }
+
+  let successCount = 0;
+  let failureCount = 0;
+
+  for (const chunk of chunks) {
+    try {
+      const res = await messaging.sendEachForMulticast({
+        tokens: chunk,
+        notification: {
+          title: `Room Details — ${tournamentTitle}`,
+          body: `Room ID: ${roomId} | Password: ${roomPassword}`,
+        },
+      });
+      successCount += res.successCount;
+      failureCount += res.failureCount;
+    } catch (err) {
+      failureCount += chunk.length;
+    }
+  }
+
+  return { successCount, failureCount };
+}
+
+async function handleNotifyStart(command) {
+  const title = await extractTournamentTitleForNotify(command);
+
+  if (!title) {
+    return chatResponse(
+      "Boss, kaunsa tournament? Naam clearly boliye.",
+      "LYRA"
+    );
+  }
+
+  await startNotifyDraft(title);
+  return chatResponse("Room ID kya hogi Boss?", "LYRA");
+}
+
+async function handleNotifyTurn(draft, command) {
+  if (isCancelWordNotify(command)) {
+    await resetNotifyDraft();
+    return chatResponse("Theek hai Boss, cancel kar diya.", "LYRA");
+  }
+
+  if (draft.stage === "await_room_id") {
+    const roomId = command.trim();
+    if (!roomId) {
+      return chatResponse("Boss, room ID boliye.", "LYRA");
+    }
+    await updateNotifyDraft({ roomId, stage: "await_password" });
+    return chatResponse("Password kya hoga Boss?", "LYRA");
+  }
+
+  if (draft.stage === "await_password") {
+    const roomPassword = command.trim();
+    if (!roomPassword) {
+      return chatResponse("Boss, password boliye.", "LYRA");
+    }
+
+    try {
+      const tournament = await prisma.tournament.findFirst({
+        where: { title: { contains: draft.tournamentTitle, mode: "insensitive" } },
+      });
+
+      if (!tournament) {
+        await resetNotifyDraft();
+        return chatResponse(
+          `Boss, "${draft.tournamentTitle}" naam ka tournament nahi mila.`,
+          "LYRA"
+        );
+      }
+
+      // Save the room credentials on the tournament itself too,
+      // same fields the rest of the app already uses.
+      await prisma.tournament.update({
+        where: { id: tournament.id },
+        data: { roomId, roomPassword },
+      });
+
+      const payments = await prisma.entryPayment.findMany({
+        where: { tournamentId: tournament.id, status: "PAID" },
+        include: { user: true },
+        distinct: ["userId"],
+      });
+
+      const users = payments.map((p) => p.user).filter(Boolean);
+
+      if (users.length === 0) {
+        await resetNotifyDraft();
+        return chatResponse(
+          `Boss, "${tournament.title}" mein abhi tak koi player join nahi hua.`,
+          "LYRA"
+        );
+      }
+
+      await prisma.notification.createMany({
+        data: users.map((u) => ({
+          type: "room_details",
+          userId: u.uid || String(u.id),
+          title: `Room Details — ${tournament.title}`,
+          message: `Room ID: ${roomId} | Password: ${roomPassword}`,
+        })),
+      });
+
+      const tokens = users.map((u) => u.fcmToken).filter(Boolean);
+      const { successCount } = await sendRoomDetailsPush(
+        tokens,
+        tournament.title,
+        roomId,
+        roomPassword
+      );
+
+      await resetNotifyDraft();
+
+      return chatResponse(
+        `Boss, ${users.length} player ne "${tournament.title}" join kiya tha, sabko notification bhej di hai${
+          tokens.length ? ` (${successCount}/${tokens.length} device tak push pahunchi)` : ""
+        }.`,
+        "LYRA"
+      );
+    } catch (err) {
+      await resetNotifyDraft();
+      await logCortexError("personal/command:notify_joiners", err);
+      return chatResponse(
+        "Boss, notification bhejte waqt error aaya. Dobara try kariye.",
+        "LYRA"
+      );
+    }
+  }
+
+  await resetNotifyDraft();
+  return chatResponse("Boss, kuch gadbad ho gayi, dobara try karo.", "LYRA");
+}
+
 // ============================================
 // SINGLE-STEP DISPATCH (now passes through any
 // LLM-extracted params, e.g. status/game/uid/name)
@@ -759,6 +932,11 @@ export async function POST(request) {
         return await handleDbWriteTurn(dbWriteDraft, command);
       }
 
+      const notifyDraft = await getNotifyDraft();
+      if (notifyDraft && notifyDraft.active) {
+        return await handleNotifyTurn(notifyDraft, command);
+      }
+
       if (command && isTournamentCreateIntent(command)) {
         return await handleWizardStart();
       }
@@ -794,6 +972,10 @@ Is command ko poora karne ke liye ek single PostgreSQL UPDATE query likho. Rules
           `Boss, ye query chalाऊँga: ${sql}. Confirm karu? "haan" boliye.`,
           "CORTEX"
         );
+      }
+
+      if (command && isNotifyJoinersIntent(command)) {
+        return await handleNotifyStart(command);
       }
     }
 

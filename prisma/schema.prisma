@@ -353,3 +353,13 @@ model AtlasCommitLog {
   createdAt      DateTime @default(now())
   resolvedAt     DateTime?
 }
+
+model NotificationDraft {
+  id              Int      @id @default(1)
+  active          Boolean  @default(false)
+  stage           String   @default("await_room_id") // await_room_id | await_password
+  tournamentTitle String?
+  roomId          String?
+  roomPassword    String?
+  updatedAt       DateTime @updatedAt
+}
