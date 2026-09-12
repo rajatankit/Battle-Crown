@@ -31,6 +31,8 @@ import {
   isAffirmativeAtlas,
   isNegativeAtlas,
 } from "../../../lib/cortex/atlasWizard";
+import { DB_SCHEMA_CONTEXT } from "../../../lib/cortex/schemaContext";
+import { runSafeQuery } from "../../../lib/cortex/dbQuery";
 
 function chatResponse(message, agent = "CORTEX") {
   return NextResponse.json({
@@ -215,6 +217,44 @@ function formatToolReply(step, result) {
   }
 
   return null;
+}
+
+function looksLikeDataQuestion(text) {
+  const t = text.toLowerCase();
+  return /\b(kitne|kitna|kaun|kya|list|dikhao|status|kab|players?|tournament|wallet|balance|withdrawal|transaction|history|join|score|record)\b/.test(t);
+}
+
+async function tryDatabaseFallback(command) {
+  const sqlPrompt = `${DB_SCHEMA_CONTEXT}
+
+Boss ka sawaal: "${command}"
+
+Is sawaal ka jawaab dene ke liye ek single PostgreSQL SELECT query likho. Rules:
+- Sirf SELECT query, kuch aur nahi
+- Har table/column naam double quotes mein likho (case-sensitive hai)
+- LIMIT 50 se zyada mat maango
+- Sirf raw SQL do, koi explanation, koi markdown, koi extra text nahi`;
+
+  try {
+    const rawSql = await askCortexRaw(sqlPrompt);
+    const sql = rawSql.replace(/```sql|```/gi, "").trim();
+    const rows = await runSafeQuery(sql);
+
+    const resultsJson = JSON.stringify(rows, (key, value) =>
+      typeof value === "bigint" ? value.toString() : value
+    ).slice(0, 4000);
+
+    const answerPrompt = `Tum CORTEX ho, Hinglish mein baat karte ho, "Boss" bolte ho.
+Boss ne poocha: "${command}"
+Database result: ${resultsJson}
+Isse chhota natural jawaab do (1-3 sentences). Khaali result ho to bolo koi data nahi mila.`;
+
+    const answer = await askCortexRaw(answerPrompt);
+    return answer.trim();
+  } catch (err) {
+    console.error("DB fallback failed:", err);
+    return null;
+  }
 }
 
 // ============================================
@@ -673,6 +713,16 @@ export async function POST(request) {
       }
 
       if (llm.type === "chat") {
+        if (looksLikeDataQuestion(command)) {
+          const dbAnswer = await tryDatabaseFallback(command);
+          if (dbAnswer) {
+            return NextResponse.json({
+              success: true,
+              result: { success: true, agent: "CORTEX", message: dbAnswer },
+            });
+          }
+        }
+
         return NextResponse.json({
           success: true,
           result: {
