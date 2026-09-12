@@ -15,11 +15,11 @@ export async function POST(request) {
       return NextResponse.json({ success: false, error: "question required hai" }, { status: 400 });
     }
 
-    const since = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
     const logs = await prisma.conversationLog.findMany({
       where: { userId: uid, createdAt: { gte: since } },
       orderBy: { createdAt: "asc" },
-      take: 200,
+      take: 400,
     });
 
     if (logs.length === 0) {

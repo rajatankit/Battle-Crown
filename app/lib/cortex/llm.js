@@ -1,4 +1,5 @@
 import { getMemories } from "./memory";
+import { normalizeNumberToken } from "./numberNormalize";
 
 const GROQ_API_KEY = (process.env.CORTEX_GROQ_API_KEY || "").trim();
 const GEMINI_API_KEY = (process.env.CORTEX_GEMINI_API_KEY || "").trim();
@@ -109,6 +110,27 @@ Supported keys per action (use only when relevant, all optional):
 - SENTINEL:security_scan -> (no params needed)
 - LYRA:send_notification -> player_id=<id>, title="<title>", message="<message>"
 
+2c) CONFIDENCE — For these specific high-impact actions, also append a
+confidence=0.NN value (between 0 and 1) reflecting how sure you are that
+you correctly identified BOTH the action AND its key parameters:
+ARIA:delete_tournament
+ARIA:update_tournament
+SENTINEL:security_action
+
+Only add confidence when it matters:
+- If Boss's sentence is clear and unambiguous (e.g. "Fire Storm tournament delete kar do"), you may OMIT confidence entirely — it defaults to high.
+- If something is genuinely ambiguous — a number could mean more than one field, the tournament/player name is unclear or could match multiple things, or you had to guess a parameter — APPEND confidence=0.4 (or lower the more unsure you are).
+- Never fabricate a high confidence just to avoid asking. When genuinely unsure, a low confidence number is the correct, honest answer.
+
+Example:
+User: 20 wala update kar do
+(ambiguous - could be entry fee or slots, no active task context to disambiguate)
+TOOL: ARIA:update_tournament entryFee=20 confidence=0.4
+
+User: Fire Storm tournament ka entry fee 50 kar do
+(unambiguous)
+TOOL: ARIA:update_tournament title="Fire Storm" entryFee=50
+
 Examples of tool lines WITH params:
 TOOL: ARIA:read_tournament status=live
 TOOL: ARIA:read_tournament title="F1"
@@ -141,6 +163,24 @@ use your judgment for similar phrasings too):
 - "<fact>, note kar lo"
 - "hamesha yaad rakhna ki <fact>"
 - "isko permanently yaad rakhna <fact>"
+
+5) FORGET — Agar Boss kisi purani saved memory ko bhulwana chahta hai, in patterns ko
+pehchano:
+- "bhool jao ki <fact>"
+- "isko bhula do <fact>"
+- "ye yaad mat rakho ab <fact>"
+- "forget that <fact>"
+- "<fact> wali baat bhool jao"
+
+Extract sirf wo fact/topic jo bhulwana hai (jitna Boss ne bola, uska matlab wahi rahe).
+Reply mein normal chat confirmation do (jaise "Theek hai Boss, bhula diya"), aur end mein
+ek extra line add karo:
+FORGET: <jo fact bhulwana hai, Boss ke words ke kareeb>
+
+Example:
+User: mera birthday wali baat bhool jao
+Theek hai Boss, bhula diya.
+FORGET: Boss ka birthday
 
 The memory-trigger phrase can come BEFORE the fact, AFTER the fact, or even in
 the MIDDLE of the sentence. Extract just the actual fact/instruction itself —
@@ -294,29 +334,40 @@ const VALID_TOOL_PAIRS = new Set([
   "SENTINEL:read_security_logs",
 ]);
 
+const NUMERIC_PARAM_KEYS = [
+  "entryFee", "maxSlots", "killReward", "firstPrize", "secondPrize", "thirdPrize",
+  "amount", "kills", "placement", "rank", "tournament_id", "player_id", "match_id",
+];
+
 const MAX_STEPS_PER_COMMAND = 5;
 
 // Pulls out any "MEMORY: <fact>" lines from the raw text (can appear
 // anywhere, usually at the end) and returns the remaining text plus
 // the extracted facts, so the rest of parsing is unaffected.
-function extractMemoryLines(text) {
+function extractSpecialLines(text) {
   const lines = String(text || "").split("\n");
   const memoryFacts = [];
+  const forgetFacts = [];
   const remaining = [];
 
   const memoryRegex = /^MEMORY\s*:\s*(.+)$/i;
+  const forgetRegex = /^FORGET\s*:\s*(.+)$/i;
 
   for (const line of lines) {
     const trimmed = line.trim();
-    const m = trimmed.match(memoryRegex);
-    if (m && m[1].trim()) {
-      memoryFacts.push(m[1].trim().slice(0, 500));
+    const memMatch = trimmed.match(memoryRegex);
+    const forgetMatch = trimmed.match(forgetRegex);
+
+    if (memMatch && memMatch[1].trim()) {
+      memoryFacts.push(memMatch[1].trim().slice(0, 500));
+    } else if (forgetMatch && forgetMatch[1].trim()) {
+      forgetFacts.push(forgetMatch[1].trim().slice(0, 500));
     } else {
       remaining.push(line);
     }
   }
 
-  return { text: remaining.join("\n").trim(), memoryFacts };
+  return { text: remaining.join("\n").trim(), memoryFacts, forgetFacts };
 }
 
 // Parses "key=value key2="quoted value"" trailing text into an object.
@@ -341,8 +392,8 @@ function parseLLMOutput(raw) {
     .replace(/```/g, "")
     .trim();
 
-  const { text: withoutMemory, memoryFacts } = extractMemoryLines(text);
-  text = withoutMemory;
+  const { text: withoutSpecial, memoryFacts, forgetFacts } = extractSpecialLines(text);
+  text = withoutSpecial;
 
   // SWITCH: NOVA
   const switchMatch = text.match(
@@ -353,6 +404,7 @@ function parseLLMOutput(raw) {
       type: "switch",
       agent_id: switchMatch[1].toUpperCase(),
       memoryFacts,
+      forgetFacts,
     };
   }
 
@@ -371,7 +423,19 @@ function parseLLMOutput(raw) {
     const pairKey = `${agentId}:${action}`;
 
     if (VALID_TOOL_PAIRS.has(pairKey)) {
-      steps.push({ agent_id: agentId, action, params: parseInlineParams(m[3]) });
+      const params = parseInlineParams(m[3]);
+      let confidence = 1;
+      if (params.confidence !== undefined) {
+        const parsedConf = parseFloat(params.confidence);
+        if (!Number.isNaN(parsedConf)) confidence = Math.max(0, Math.min(1, parsedConf));
+        delete params.confidence;
+      }
+      for (const key of NUMERIC_PARAM_KEYS) {
+        if (params[key] !== undefined) {
+          params[key] = normalizeNumberToken(params[key]);
+        }
+      }
+      steps.push({ agent_id: agentId, action, params, confidence });
     } else {
       sawUnknownTool = true;
     }
@@ -388,11 +452,12 @@ function parseLLMOutput(raw) {
         agent_id: steps[0].agent_id,
         action: steps[0].action,
         params: steps[0].params,
+        confidence: steps[0].confidence,
         memoryFacts,
       };
     }
 
-    return { type: "tool_multi", steps, memoryFacts };
+    return { type: "tool_multi", steps, memoryFacts, forgetFacts };
   }
 
   if (sawUnknownTool) {
@@ -400,6 +465,7 @@ function parseLLMOutput(raw) {
       type: "chat",
       message: "Boss, yeh command abhi supported nahi hai.",
       memoryFacts,
+      forgetFacts,
     };
   }
 
@@ -413,7 +479,7 @@ function parseLLMOutput(raw) {
       lower === `talk to ${a}` ||
       lower === `${a} se baat`
     ) {
-      return { type: "switch", agent_id: agent, memoryFacts };
+      return { type: "switch", agent_id: agent, memoryFacts, forgetFacts };
     }
   }
 
@@ -428,6 +494,7 @@ function parseLLMOutput(raw) {
     type: "chat",
     message: message.slice(0, 220),
     memoryFacts,
+    forgetFacts,
   };
 }
 
@@ -457,6 +524,8 @@ async function askGroq(userText, systemPrompt) {
         message:
           "Boss, language core is cooling down. Please try again in a minute.",
         memoryFacts: [],
+        forgetFacts,
+      
       };
     }
     throw new Error(`Groq error ${response.status}: ${errText.slice(0, 200)}`);
@@ -503,6 +572,7 @@ async function askGemini(userText, systemPrompt) {
         message:
           "Boss, language core is cooling down. Please try again in a minute.",
         memoryFacts: [],
+        forgetFacts,
       };
     }
     throw new Error(`Gemini error ${response.status}: ${errText.slice(0, 200)}`);

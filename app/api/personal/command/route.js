@@ -2,7 +2,7 @@
 import { requirePersonalOwner } from "../../../lib/personal-owner";
 import { cortexDispatch } from "../../../lib/cortex/client";
 import { askCortexLLM } from "../../../lib/cortex/llm";
-import { saveMemory } from "../../../lib/cortex/memory";
+import { saveMemory, getMemoriesWithIds, deleteMemoryById } from "../../../lib/cortex/memory";
 import { logCortexError } from "../../../lib/cortex/errorLogger";
 import { prisma } from "../../../lib/prisma";
 import { messaging } from "../../../lib/firebase-admin";
@@ -69,13 +69,84 @@ import {
   isRevenueReportIntent,
   isPosterIntent,
 } from "../../../lib/cortex/adminActions";
-import { getCortexContext, setLastTournament, setLastPlayer, hasPronounReference, resolvePronouns } from "../../../lib/cortex/context";
+import { getCortexContext, setLastTournament, setLastPlayer, hasPronounReference, resolvePronouns, getRecentConversation, setLastList, hasOrdinalReference, resolveOrdinalReference } from "../../../lib/cortex/context";
+import { findTournamentByTitleFuzzy, findUserByIdentifierFuzzy } from "../../../lib/cortex/fuzzyMatch";
+import { normalizeCommonTypos } from "../../../lib/cortex/textNormalize";
 
 function chatResponse(message, agent = "CORTEX") {
   return NextResponse.json({
     success: true,
     result: { success: true, agent, message },
   });
+}
+
+// ============================================
+// CONFIDENCE-BASED CONFIRMATION
+// ============================================
+const RISKY_ACTIONS = new Set([
+  "ARIA:delete_tournament",
+  "ARIA:update_tournament",
+  "SENTINEL:security_action",
+]);
+const LOW_CONFIDENCE_THRESHOLD = 0.6;
+
+function findLowConfidenceRiskyStep(steps) {
+  for (const step of steps) {
+    const key = `${step.agent_id}:${step.action}`;
+    const confidence = typeof step.confidence === "number" ? step.confidence : 1;
+    if (RISKY_ACTIONS.has(key) && confidence < LOW_CONFIDENCE_THRESHOLD) {
+      return step;
+    }
+  }
+  return null;
+}
+
+function describeStepForConfirmation(step) {
+  const paramsText = Object.entries(step.params || {})
+    .map(([k, v]) => `${k}=${v}`)
+    .join(", ");
+  return `${step.agent_id}:${step.action}${paramsText ? ` (${paramsText})` : ""}`;
+}
+
+// Uses the LLM to figure out WHICH existing memory the Boss is
+// referring to when he asks to forget something spoken in natural
+// language, then deletes just that one row.
+async function forgetMatchingMemories(forgetTexts) {
+  if (!Array.isArray(forgetTexts) || forgetTexts.length === 0) return [];
+
+  const existing = await getMemoriesWithIds();
+  if (existing.length === 0) return [];
+
+  const forgotten = [];
+
+  for (const forgetText of forgetTexts) {
+    const listing = existing.map((m) => `${m.id}: ${m.fact}`).join("\n");
+
+    const prompt = `Yahan Boss ke saved memories hain (id: fact):
+${listing}
+
+Boss ne kaha: "${forgetText}" — isse bhulwane ko bola.
+
+Sabse zyada match karti memory ka SIRF ID number return karo, kuch aur nahi.
+Koi bhi match na ho to "NONE" likho.`;
+
+    try {
+      const raw = await askCortexRaw(prompt);
+      const idMatch = raw.trim().match(/^\d+/);
+      if (idMatch) {
+        const id = parseInt(idMatch[0], 10);
+        const target = existing.find((m) => m.id === id);
+        if (target) {
+          const ok = await deleteMemoryById(id);
+          if (ok) forgotten.push(target.fact);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to match/forget Cortex memory:", err);
+    }
+  }
+
+  return forgotten;
 }
 
 // ============================================
@@ -252,8 +323,34 @@ async function updateContextFromResult(step, result) {
       });
     }
 
+    if (step.action === "read_tournament" && Array.isArray(data.tournaments)) {
+      await setLastList("tournament", data.tournaments.map((t) => ({ id: t.id, label: t.title })));
+    }
+
     if (step.action === "read_player_data" && data.player) {
       await setLastPlayer({ id: data.player.id, name: data.player.name });
+    }
+
+    if (step.action === "read_player_data" && Array.isArray(data.players)) {
+      await setLastList("player", data.players.map((p) => ({ id: p.id, label: p.name || p.uid })));
+    }
+
+    if (step.action === "read_withdrawal_status" && Array.isArray(data.withdrawals)) {
+      await setLastList(
+        "withdrawal",
+        data.withdrawals.map((w) => ({ id: w.id, label: `${w.user_name || w.user_email || "player"} - ₹${w.amount}` }))
+      );
+    }
+
+    if (step.action === "read_match_data" && Array.isArray(data.matches)) {
+      await setLastList(
+        "match",
+        data.matches.map((m) => ({ id: m.id, label: `${m.ign || m.uid || "player"} - ${m.tournament}` }))
+      );
+    }
+
+    if (step.action === "read_security_logs" && Array.isArray(data.alerts)) {
+      await setLastList("alert", data.alerts.map((a) => ({ id: a.id, label: `${a.severity} - ${a.title}` })));
     }
   } catch {
     // context update is best-effort, never block the main response
@@ -265,10 +362,24 @@ function looksLikeDataQuestion(text) {
   return /\b(kitne|kitna|kaun|kya|list|dikhao|status|kab|players?|tournament|wallet|balance|withdrawal|transaction|history|join|score|record)\b/.test(t);
 }
 
-async function tryDatabaseFallback(command) {
-  const sqlPrompt = `${getDbSchemaContext()}
+async function tryDatabaseFallback(command, uid) {
+  let historyBlock = "";
+  try {
+    const recent = await getRecentConversation(uid, { limit: 10, sinceMinutes: 20 });
+    if (recent.length > 0) {
+      historyBlock = `\nRecent conversation (for context on follow-up questions like "uska", "poori list", "aur batao"):\n${recent
+        .map((l) => `${l.role === "user" ? "Boss" : "CORTEX"}: ${l.message}`)
+        .join("\n")}\n`;
+    }
+  } catch (err) {
+    console.error("Failed to load recent conversation for DB fallback:", err);
+  }
 
-Boss ka sawaal: "${command}"
+  const sqlPrompt = `${getDbSchemaContext()}
+${historyBlock}
+Boss ka current sawaal: "${command}"
+
+Agar ye sawaal pichli baat ka follow-up hai (jaise "uska poori list do", "aur kitne baaki hai"), to conversation history se pata karo kis player/tournament/topic ki baat ho rahi hai, aur usi ke context mein query likho.
 
 Is sawaal ka jawaab dene ke liye ek single PostgreSQL SELECT query likho. Rules:
 - Sirf SELECT query, kuch aur nahi
@@ -286,9 +397,10 @@ Is sawaal ka jawaab dene ke liye ek single PostgreSQL SELECT query likho. Rules:
     ).slice(0, 4000);
 
     const answerPrompt = `Tum CORTEX ho, Hinglish mein baat karte ho, "Boss" bolte ho.
-Boss ne poocha: "${command}"
+${historyBlock}
+Boss ne ab poocha: "${command}"
 Database result: ${resultsJson}
-Isse chhota natural jawaab do (1-3 sentences). Khaali result ho to bolo koi data nahi mila.`;
+Isse chhota natural jawaab do (1-4 sentences, agar list hai to items clearly gino). Khaali result ho to bolo koi data nahi mila.`;
 
     const answer = await askCortexRaw(answerPrompt);
     return answer.trim();
@@ -752,9 +864,7 @@ async function handleNotifyTurn(draft, command) {
     }
 
     try {
-      const tournament = await prisma.tournament.findFirst({
-        where: { title: { contains: draft.tournamentTitle, mode: "insensitive" } },
-      });
+      const tournament = await findTournamentByTitleFuzzy(draft.tournamentTitle);
 
       if (!tournament) {
         await resetNotifyDraft();
@@ -829,17 +939,7 @@ async function handleNotifyTurn(draft, command) {
 // ============================================
 
 async function findUserByIdentifier(identifier) {
-  return prisma.user.findFirst({
-    where: {
-      OR: [
-        { name: { contains: identifier, mode: "insensitive" } },
-        { uid: identifier },
-        { bgmiIgn: { contains: identifier, mode: "insensitive" } },
-        { ffIgn: { contains: identifier, mode: "insensitive" } },
-        { email: { contains: identifier, mode: "insensitive" } },
-      ],
-    },
-  });
+  return findUserByIdentifierFuzzy(identifier);
 }
 
 async function handleBanStart(command) {
@@ -1064,9 +1164,7 @@ async function handleRescheduleStart(command) {
     return chatResponse("Boss, kaunsa tournament reschedule karna hai?", "ARIA");
   }
 
-  const tournament = await prisma.tournament.findFirst({
-    where: { title: { contains: title, mode: "insensitive" } },
-  });
+  const tournament = await findTournamentByTitleFuzzy(title);
 
   if (!tournament) {
     return chatResponse(`Boss, "${title}" naam ka tournament nahi mila.`, "ARIA");
@@ -1137,10 +1235,30 @@ Sentence: "${command}"`);
 // GENERIC PENDING-ACTION DISPATCH
 // ============================================
 
-async function handlePendingTurn(draft, command) {
+async function handlePendingTurn(draft, command, uid) {
   if (isCancelWordPending(command)) {
     await resetPendingDraft();
     return chatResponse("Theek hai Boss, cancel kar diya.", "CORTEX");
+  }
+
+  if (draft.kind === "confirm_tool") {
+    if (!isAffirmativePending(command)) {
+      await resetPendingDraft();
+      return chatResponse("Theek hai Boss, dobara sahi tarike se boliye.", "CORTEX");
+    }
+    const payload = draft.payload || {};
+    const steps = Array.isArray(payload.steps) ? payload.steps : [];
+    await resetPendingDraft();
+    if (steps.length === 0) {
+      return chatResponse("Boss, kuch gadbad ho gayi, dobara try karo.", "CORTEX");
+    }
+    return await executeSteps(steps, {
+      command: payload.command || command,
+      uid,
+      approved: false,
+      approvalMethod: null,
+      riskHint: null,
+    });
   }
 
   if (draft.kind === "ban_player") return handleBanTurn(draft, command);
@@ -1252,9 +1370,7 @@ async function handlePosterCommand(command) {
     return chatResponse("Boss, kis tournament ka poster banau?", "ARIA");
   }
 
-  const tournament = await prisma.tournament.findFirst({
-    where: { title: { contains: title, mode: "insensitive" } },
-  });
+ const tournament = await findTournamentByTitleFuzzy(title);
 
   if (!tournament) {
     return chatResponse(`Boss, "${title}" naam ka tournament nahi mila.`, "ARIA");
@@ -1308,6 +1424,106 @@ async function runStep({ step, command, uid, approved, approvalMethod, riskHint 
   return { result, needsApprove, msg, verificationMatch };
 }
 
+async function executeSteps(steps, { command, uid, approved, approvalMethod, riskHint }) {
+  const completed = [];
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+
+    // Only the step being resumed right now (always index 0 of the
+    // steps we were given) can legitimately carry the "approved" flag
+    // from this call. Any step further down the chain must still ask
+    // for its own approval when its turn comes — otherwise one
+    // approval would silently wave through every high-risk step
+    // that happens to be queued after it.
+    const stepApproved = approved && i === 0;
+
+    const { result, needsApprove, msg, verificationMatch } = await runStep({
+      step,
+      command: command || "(resumed chain)",
+      uid,
+      approved: stepApproved,
+      approvalMethod,
+      riskHint,
+    });
+
+    if (needsApprove && !approved) {
+      return approvalRequiredResponse({
+        result,
+        msg,
+        verificationMatch,
+        agentId: result?.agent || result?.agent_id || step.agent_id,
+        completed,
+        remainingSteps: steps.slice(i),
+      });
+    }
+
+    await updateContextFromResult(step, result);
+
+    let stepMessage =
+      formatToolReply(step, result) ||
+      result?.data?.message ||
+      result?.message ||
+      "Done, Boss.";
+
+    if (
+      typeof stepMessage === "string" &&
+      (stepMessage.includes("Intent identified") ||
+        stepMessage.includes("Unable to identify") ||
+        stepMessage.toLowerCase().includes("not register"))
+    ) {
+      stepMessage = result?.success
+        ? "Done, Boss."
+        : "That command is not available yet, Boss.";
+    }
+
+    completed.push({
+      agent_id: step.agent_id,
+      action: step.action,
+      message: stepMessage,
+      success: result?.success !== false,
+    });
+  }
+
+  if (completed.length === 0) {
+    return NextResponse.json({
+      success: true,
+      result: {
+        success: true,
+        agent: "CORTEX",
+        message: "That command is not available yet, Boss.",
+      },
+    });
+  }
+
+  let combinedMessage;
+  if (completed.length === 1) {
+    combinedMessage = completed[0].message;
+  } else {
+    combinedMessage = completed
+      .map((s, idx) => `${idx + 1}. ${s.agent_id}: ${s.message}`)
+      .join("\n");
+  }
+
+  if (typeof combinedMessage === "string" && combinedMessage.length > 320) {
+    combinedMessage = combinedMessage.slice(0, 310) + "...";
+  }
+
+  prisma.conversationLog
+    .create({ data: { userId: uid, role: "assistant", message: String(combinedMessage) } })
+    .catch((err) => console.error("Failed to log assistant turn:", err));
+
+  return NextResponse.json({
+    success: true,
+    result: {
+      success: true,
+      agent: completed.length === 1 ? completed[0].agent_id : "CORTEX",
+      message: combinedMessage,
+      steps: completed,
+    },
+  });
+}
+
 export async function POST(request) {
   const { uid, response } = await requirePersonalOwner(request);
   if (response) return response;
@@ -1324,6 +1540,13 @@ export async function POST(request) {
 
   const command =
     typeof body?.command === "string" ? body.command.trim() : "";
+
+  // Log the incoming command (best-effort, never blocks the request)
+  if (command) {
+    prisma.conversationLog
+      .create({ data: { userId: uid, role: "user", message: command } })
+      .catch((err) => console.error("Failed to log user turn:", err));
+  }
   const approved = body?.approved === true;
   const approvalMethod =
     typeof body?.approval_method === "string" ? body.approval_method : null;
@@ -1367,7 +1590,7 @@ export async function POST(request) {
 
       const pendingDraft = await getPendingDraft();
       if (pendingDraft && pendingDraft.active) {
-        return await handlePendingTurn(pendingDraft, command);
+        return await handlePendingTurn(pendingDraft, command, uid);
       }
 
       if (command && isTournamentCreateIntent(command)) {
@@ -1441,10 +1664,16 @@ Is command ko poora karne ke liye ek single PostgreSQL UPDATE query likho. Rules
     if (resumingSteps && resumingSteps.length > 0) {
       steps = resumingSteps;
     } else {
-      let effectiveCommand = command;
-      if (command && hasPronounReference(command)) {
+      let effectiveCommand = normalizeCommonTypos(command);
+      if (effectiveCommand && (hasOrdinalReference(effectiveCommand) || hasPronounReference(effectiveCommand))) {
         const ctx = await getCortexContext();
-        effectiveCommand = resolvePronouns(command, ctx);
+        if (hasOrdinalReference(effectiveCommand)) {
+          const { resolved } = resolveOrdinalReference(effectiveCommand, ctx);
+          effectiveCommand = resolved;
+        }
+        if (hasPronounReference(effectiveCommand)) {
+          effectiveCommand = resolvePronouns(effectiveCommand, ctx);
+        }
       }
 
       const llm = await askCortexLLM(effectiveCommand);
@@ -1456,6 +1685,14 @@ Is command ko poora karne ke liye ek single PostgreSQL UPDATE query likho. Rules
           } catch (err) {
             console.error("Failed to save Cortex memory:", err);
           }
+        }
+      }
+
+      if (Array.isArray(llm.forgetFacts) && llm.forgetFacts.length > 0) {
+        try {
+          await forgetMatchingMemories(llm.forgetFacts);
+        } catch (err) {
+          console.error("Failed to forget Cortex memory:", err);
         }
       }
 
@@ -1473,8 +1710,11 @@ Is command ko poora karne ke liye ek single PostgreSQL UPDATE query likho. Rules
 
       if (llm.type === "chat") {
         if (looksLikeDataQuestion(command)) {
-          const dbAnswer = await tryDatabaseFallback(command);
+          const dbAnswer = await tryDatabaseFallback(command, uid);
           if (dbAnswer) {
+            prisma.conversationLog
+              .create({ data: { userId: uid, role: "assistant", message: dbAnswer } })
+              .catch((err) => console.error("Failed to log assistant turn:", err));
             return NextResponse.json({
               success: true,
               result: { success: true, agent: "CORTEX", message: dbAnswer },
@@ -1493,99 +1733,28 @@ Is command ko poora karne ke liye ek single PostgreSQL UPDATE query likho. Rules
       }
 
       if (llm.type === "tool") {
-        steps = [{ agent_id: llm.agent_id, action: llm.action, params: llm.params }];
+        steps = [{ agent_id: llm.agent_id, action: llm.action, params: llm.params, confidence: llm.confidence }];
       } else if (llm.type === "tool_multi") {
         steps = llm.steps;
       } else {
         steps = [];
       }
-    }
 
-    const completed = [];
-
-    for (let i = 0; i < steps.length; i++) {
-      const step = steps[i];
-
-      const { result, needsApprove, msg, verificationMatch } = await runStep({
-        step,
-        command: command || "(resumed chain)",
-        uid,
-        approved,
-        approvalMethod,
-        riskHint,
-      });
-
-      if (needsApprove && !approved) {
-        return approvalRequiredResponse({
-          result,
-          msg,
-          verificationMatch,
-          agentId: result?.agent || result?.agent_id || step.agent_id,
-          completed,
-          remainingSteps: steps.slice(i),
-        });
+      // Low-confidence risky action -> confirm before executing, instead of guessing
+      if (steps.length > 0) {
+        const uncertainStep = findLowConfidenceRiskyStep(steps);
+        if (uncertainStep) {
+          await startPendingDraft("confirm_tool", { steps, command }, "confirm1");
+          return chatResponse(
+            `Boss, main samajh raha hoon aap ye chahte ho: ${describeStepForConfirmation(uncertainStep)} — sahi hai? "haan" boliye confirm karne ke liye, ya sahi tarike se dobara boliye.`,
+            "CORTEX"
+          );
+        }
       }
-
-      await updateContextFromResult(step, result);
-
-      let stepMessage =
-        formatToolReply(step, result) ||
-        result?.data?.message ||
-        result?.message ||
-        "Done, Boss.";
-
-      if (
-        typeof stepMessage === "string" &&
-        (stepMessage.includes("Intent identified") ||
-          stepMessage.includes("Unable to identify") ||
-          stepMessage.toLowerCase().includes("not register"))
-      ) {
-        stepMessage = result?.success
-          ? "Done, Boss."
-          : "That command is not available yet, Boss.";
-      }
-
-      completed.push({
-        agent_id: step.agent_id,
-        action: step.action,
-        message: stepMessage,
-        success: result?.success !== false,
-      });
     }
 
-    if (completed.length === 0) {
-      return NextResponse.json({
-        success: true,
-        result: {
-          success: true,
-          agent: "CORTEX",
-          message: "That command is not available yet, Boss.",
-        },
-      });
-    }
+    return await executeSteps(steps, { command, uid, approved, approvalMethod, riskHint });
 
-    let combinedMessage;
-    if (completed.length === 1) {
-      combinedMessage = completed[0].message;
-    } else {
-      combinedMessage = completed
-        .map((s, idx) => `${idx + 1}. ${s.agent_id}: ${s.message}`)
-        .join("\n");
-    }
-
-    if (typeof combinedMessage === "string" && combinedMessage.length > 320) {
-      combinedMessage = combinedMessage.slice(0, 310) + "...";
-    }
-
-    return NextResponse.json({
-      success: true,
-      result: {
-        success: true,
-        agent: completed.length === 1 ? completed[0].agent_id : "CORTEX",
-        message: combinedMessage,
-        steps: completed,
-      },
-    });
   } catch (error) {
     console.error("Personal command failed:", error);
     await logCortexError("personal/command", error);

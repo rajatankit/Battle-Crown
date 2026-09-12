@@ -353,15 +353,7 @@ model AtlasDraft {
   updatedAt      DateTime @updatedAt
 }
 
-model CortexContext {
-  id                 Int      @id @default(1)
-  lastTournamentPk   Int?
-  lastTournamentTitle String?
-  lastFirestoreId    String?
-  lastPlayerId       Int?
-  lastPlayerName     String?
-  updatedAt          DateTime @updatedAt
-}
+
 
 model DbWriteDraft {
   id           Int      @id @default(1)
@@ -409,4 +401,15 @@ model PendingActionDraft {
   stage     String   @default("confirm1")
   payload   Json?
   updatedAt DateTime @updatedAt
+}
+
+model CortexContext {
+  id                 Int      @id @default(1)
+  lastTournamentPk   Int?
+  lastTournamentTitle String?
+  lastFirestoreId    String?
+  lastPlayerId       Int?
+  lastPlayerName     String?
+  lastListJson       Json?     // NEW — last shown list, for "dusra wala" references
+  updatedAt          DateTime @updatedAt
 }

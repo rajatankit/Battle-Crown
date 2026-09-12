@@ -61,7 +61,9 @@ ${lines.join("\n\n")}
 
 Notes:
 - "match_history" model ka DB table naam bhi "match_history" hai (lowercase), baaki models ke table naam unke model naam jaise hi hain (jaise "tournaments" @@map se).
-- "match_history"."tournamentId" "tournaments"."firestoreId" se match karta hai, "tournaments"."id" se nahi.
+- "match_history"."tournamentId" "tournaments"."id" se match karta hai (normal integer foreign key relation).
+- "entry_payments"."tournamentId" bhi "tournaments"."id" se match karta hai — ye batata hai konsa player kis tournament mein join/pay kiya (status='PAID' successful join hai).
+- Kisi player ne kitne tournaments join kiye, ye "entry_payments" table se GROUP BY "userId" karke nikalta hai (status='PAID' wale rows ginne chahiye).
 - "Notification"."userId" aur "ConversationLog"."userId" Firebase uid (string) hain, "User"."id" (integer) nahi.
 - Security-related tables kabhi query mat karo (already is list mein exclude hain).
 `;

@@ -18,3 +18,19 @@ export async function saveMemory(fact) {
     data: { fact: trimmed.slice(0, 500) },
   });
 }
+
+export async function getMemoriesWithIds() {
+  return prisma.cortexMemory.findMany({
+    orderBy: { createdAt: "desc" },
+    take: MAX_MEMORIES_IN_CONTEXT,
+  });
+}
+
+export async function deleteMemoryById(id) {
+  try {
+    await prisma.cortexMemory.delete({ where: { id } });
+    return true;
+  } catch {
+    return false;
+  }
+}
