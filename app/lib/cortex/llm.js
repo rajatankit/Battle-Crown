@@ -595,3 +595,47 @@ export async function askCortexRaw(prompt) {
 
   throw new Error("No LLM key configured.");
 }
+
+// ============================================================
+// APPEND THIS TO THE END OF YOUR EXISTING app/lib/cortex/llm.js
+// Do not replace the file — just add this function after
+// everything that's already there. Uses the same GEMINI_API_KEY
+// already defined at the top of that file.
+//
+// NOTE: Imagen (Google's image generation model) typically
+// requires billing enabled on the Google Cloud project tied to
+// your API key — a free-tier Gemini text key alone may not be
+// enough. If this throws a permission/billing error, that's why.
+// ============================================================
+
+export async function generateImage(prompt) {
+  if (!GEMINI_API_KEY) {
+    throw new Error("CORTEX_GEMINI_API_KEY not configured for image generation.");
+  }
+
+  const url = new URL(
+    "https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict"
+  );
+  url.searchParams.set("key", GEMINI_API_KEY);
+
+  const response = await fetch(url.toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      instances: [{ prompt }],
+      parameters: { sampleCount: 1 },
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Imagen error ${response.status}: ${errText.slice(0, 300)}`);
+  }
+
+  const data = await response.json();
+  const base64 = data?.predictions?.[0]?.bytesBase64Encoded;
+
+  if (!base64) return null;
+
+  return `data:image/png;base64,${base64}`;
+}

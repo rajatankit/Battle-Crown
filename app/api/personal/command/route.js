@@ -20,7 +20,7 @@ import {
   isNegative,
   isCancelWord,
 } from "../../../lib/cortex/tournamentWizard";
-import { askCortexRaw } from "../../../lib/cortex/llm";
+import { askCortexRaw, generateImage } from "../../../lib/cortex/llm";
 import {
   getAtlasDraft,
   startAtlasDraft,
@@ -53,6 +53,22 @@ import {
   isNotifyJoinersIntent,
   isCancelWordNotify,
 } from "../../../lib/cortex/notificationWizard";
+import {
+  getPendingDraft,
+  startPendingDraft,
+  updatePendingDraft,
+  resetPendingDraft,
+  isCancelWordPending,
+  isAffirmativePending,
+  isBanIntent,
+  isWalletAdjustIntent,
+  isRescheduleIntent,
+} from "../../../lib/cortex/pendingActionWizard";
+import {
+  isGrievanceIntent,
+  isRevenueReportIntent,
+  isPosterIntent,
+} from "../../../lib/cortex/adminActions";
 import { getCortexContext, setLastTournament, setLastPlayer, hasPronounReference, resolvePronouns } from "../../../lib/cortex/context";
 
 function chatResponse(message, agent = "CORTEX") {
@@ -64,12 +80,6 @@ function chatResponse(message, agent = "CORTEX") {
 
 // ============================================
 // SHARED APPROVAL DETECTION
-//
-// Same logic used for both the normal LLM-driven tool chain and the
-// tournament wizard's final creation call - a bridge response either
-// carries requires_approval=true, or a VERIFICATION_REQUIRED:<level>:
-// <requestId> message (the format core/agent_controller.py sends),
-// or a looser "approve"/"approval" text match as a fallback.
 // ============================================
 function detectApproval(result) {
   const msg = String(result?.message || result?.detail || "");
@@ -84,8 +94,6 @@ function detectApproval(result) {
   return { needsApprove, msg, verificationMatch };
 }
 
-// Builds the exact requires_approval response shape the frontend's
-// extractApprovalRequest() in app/personal/page.js expects.
 function approvalRequiredResponse({ result, msg, verificationMatch, agentId, completed = [], remainingSteps = null }) {
   const level = verificationMatch
     ? verificationMatch[1].toLowerCase()
@@ -121,15 +129,6 @@ function approvalRequiredResponse({ result, msg, verificationMatch, agentId, com
   });
 }
 
-// ============================================
-// SPOKEN REPLY FORMATTING FOR READ/QUERY ACTIONS
-//
-// Tool execution always reports success generically ("Tool 'X'
-// executed successfully.") - the actual data the tool fetched lives
-// in result.data. This turns that raw data into something worth
-// saying out loud, per action. Returns null if there's nothing
-// specific to format (falls back to the generic message elsewhere).
-// ============================================
 function formatToolReply(step, result) {
   const data = result?.data;
   if (!data || typeof data !== "object") return null;
@@ -240,7 +239,7 @@ function formatToolReply(step, result) {
   return null;
 }
 
- async function updateContextFromResult(step, result) {
+async function updateContextFromResult(step, result) {
   try {
     const data = result?.data;
     if (!data) return;
@@ -353,7 +352,6 @@ async function handleWizardTurn(draft, command, uid) {
     return chatResponse("Tournament creation cancel kar diya, Boss.", "ARIA");
   }
 
-  // ---- Stage: duplicate confirmation ----
   if (draft.stage === "duplicate_confirm") {
     if (isNegative(command)) {
       await resetDraft();
@@ -375,7 +373,6 @@ async function handleWizardTurn(draft, command, uid) {
     );
   }
 
-  // ---- Stage: final confirmation ----
   if (draft.stage === "final_confirm") {
     if (isNegative(command)) {
       await resetDraft();
@@ -388,10 +385,6 @@ async function handleWizardTurn(draft, command, uid) {
       );
     }
 
-    // Create the actual tournament via the existing bridge action.
-    // Field names here MUST match what core/tools/tournament_tools.py's
-    // create_tournament() reads from context (camelCase: entryFee,
-    // maxSlots, firstPrize, secondPrize, thirdPrize, killReward, date).
     try {
       const result = await cortexDispatch({
         agentId: "ARIA",
@@ -413,17 +406,9 @@ async function handleWizardTurn(draft, command, uid) {
         },
       });
 
-      // ---- Check whether this needs biometric approval BEFORE
-      // treating anything else as success/failure. create_tournament
-      // is HIGH risk, so this will normally be true on first dispatch. ----
       const { needsApprove, msg, verificationMatch } = detectApproval(result);
 
       if (needsApprove) {
-        // The bridge has already stored our full context (title, game,
-        // fees, prizes, etc.) against this request_id on the Python
-        // side - approve_and_execute() will use that stored context
-        // directly, so we don't need to keep the draft around or send
-        // remaining_steps to resume anything. Safe to reset now.
         await resetDraft();
         return approvalRequiredResponse({
           result,
@@ -456,10 +441,8 @@ async function handleWizardTurn(draft, command, uid) {
     }
   }
 
-  // ---- Stage: collecting fields ----
   const field = nextMissingField(draft);
   if (!field) {
-    // All fields filled already — shouldn't normally happen, move to duplicate check.
     return runDuplicateCheck(draft);
   }
 
@@ -475,7 +458,6 @@ async function handleWizardTurn(draft, command, uid) {
     return chatResponse(getFieldQuestion(next), "ARIA");
   }
 
-  // All fields collected — run duplicate check.
   return runDuplicateCheck(updated);
 }
 
@@ -691,17 +673,9 @@ async function handleAtlasTurn(draft, command) {
 
 // ============================================
 // ROOM-DETAILS NOTIFICATION WIZARD
-//
-// "T1 tournament ko jitne player ne join kiya un sabko room id
-// password bhej do" -> CORTEX asks for room id, then password,
-// then finds every PAID entrant of that tournament, saves an
-// in-app Notification row per player, and pushes an FCM
-// notification to every device token on file. No approval gate
-// on this one (matches the flow you described) — add one later
-// via detectApproval/approvalRequiredResponse if you want it.
 // ============================================
 
-async function extractTournamentTitleForNotify(command) {
+async function extractTournamentTitleFromText(command) {
   const prompt = `Extract ONLY the tournament name mentioned in this sentence.
 Reply with just the name, no quotes, no extra words, no explanation.
 If broken Hinglish grammar surrounds it, still pull out just the name.
@@ -743,7 +717,7 @@ async function sendRoomDetailsPush(tokens, tournamentTitle, roomId, roomPassword
 }
 
 async function handleNotifyStart(command) {
-  const title = await extractTournamentTitleForNotify(command);
+  const title = await extractTournamentTitleFromText(command);
 
   if (!title) {
     return chatResponse(
@@ -790,8 +764,6 @@ async function handleNotifyTurn(draft, command) {
         );
       }
 
-      // Save the room credentials on the tournament itself too,
-      // same fields the rest of the app already uses.
       await prisma.tournament.update({
         where: { id: tournament.id },
         data: { roomId, roomPassword },
@@ -853,8 +825,467 @@ async function handleNotifyTurn(draft, command) {
 }
 
 // ============================================
-// SINGLE-STEP DISPATCH (now passes through any
-// LLM-extracted params, e.g. status/game/uid/name)
+// BAN / SUSPEND PLAYER
+// ============================================
+
+async function findUserByIdentifier(identifier) {
+  return prisma.user.findFirst({
+    where: {
+      OR: [
+        { name: { contains: identifier, mode: "insensitive" } },
+        { uid: identifier },
+        { bgmiIgn: { contains: identifier, mode: "insensitive" } },
+        { ffIgn: { contains: identifier, mode: "insensitive" } },
+        { email: { contains: identifier, mode: "insensitive" } },
+      ],
+    },
+  });
+}
+
+async function handleBanStart(command) {
+  const raw = await askCortexRaw(`Extract player-ban details from this sentence as JSON only, no markdown, no explanation:
+{"player": "<name or uid mentioned, or null>", "reason": "<reason if mentioned, else null>"}
+Sentence: "${command}"`);
+
+  let parsed = {};
+  try {
+    parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+  } catch {
+    // fall through with empty parsed
+  }
+
+  const identifier = parsed.player?.trim();
+  if (!identifier) {
+    return chatResponse("Boss, kaunsa player? Naam ya UID boliye.", "SENTINEL");
+  }
+
+  const user = await findUserByIdentifier(identifier);
+  if (!user) {
+    return chatResponse(`Boss, "${identifier}" naam ka player nahi mila.`, "SENTINEL");
+  }
+
+  if (user.banned) {
+    return chatResponse(`Boss, "${user.name || user.email}" already banned hai.`, "SENTINEL");
+  }
+
+  const payload = {
+    userId: user.id,
+    userName: user.name || user.email,
+    reason: parsed.reason?.trim() || null,
+  };
+
+  if (!payload.reason) {
+    await startPendingDraft("ban_player", payload, "await_reason");
+    return chatResponse(`Boss, "${payload.userName}" ko ban karne ki wajah kya hai?`, "SENTINEL");
+  }
+
+  await startPendingDraft("ban_player", payload, "confirm1");
+  return chatResponse(
+    `Boss, pakka "${payload.userName}" ko ban karna hai? Wajah: ${payload.reason}. "haan" boliye confirm karne ke liye.`,
+    "SENTINEL"
+  );
+}
+
+async function handleBanTurn(draft, command) {
+  const payload = draft.payload || {};
+
+  if (draft.stage === "await_reason") {
+    const reason = command.trim();
+    if (!reason) return chatResponse("Boss, wajah boliye.", "SENTINEL");
+
+    await updatePendingDraft({ payload: { ...payload, reason }, stage: "confirm1" });
+    return chatResponse(
+      `Boss, pakka "${payload.userName}" ko ban karna hai? Wajah: ${reason}. "haan" boliye.`,
+      "SENTINEL"
+    );
+  }
+
+  if (draft.stage === "confirm1") {
+    if (!isAffirmativePending(command)) {
+      return chatResponse('Boss, "haan" ya "cancel" boliye.', "SENTINEL");
+    }
+
+    try {
+      await prisma.user.update({
+        where: { id: payload.userId },
+        data: { banned: true, banReason: payload.reason, bannedAt: new Date() },
+      });
+      await resetPendingDraft();
+      return chatResponse(`Ho gaya Boss, "${payload.userName}" ban kar diya.`, "SENTINEL");
+    } catch (err) {
+      await resetPendingDraft();
+      await logCortexError("personal/command:ban_player", err);
+      return chatResponse("Boss, ban karte waqt error aaya.", "SENTINEL");
+    }
+  }
+
+  await resetPendingDraft();
+  return chatResponse("Boss, kuch gadbad ho gayi.", "SENTINEL");
+}
+
+// ============================================
+// WALLET MANUAL ADJUSTMENT
+// ============================================
+
+async function handleWalletAdjustStart(command) {
+  const raw = await askCortexRaw(`Extract wallet adjustment details from this sentence as JSON only, no markdown:
+{"player": "<name or uid, or null>", "amount": <number, positive to add, negative to deduct, or null if not mentioned>, "reason": "<reason if mentioned, else null>"}
+Sentence: "${command}"`);
+
+  let parsed = {};
+  try {
+    parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+  } catch {
+    // fall through
+  }
+
+  const identifier = parsed.player?.trim();
+  if (!identifier) {
+    return chatResponse("Boss, kis player ka wallet? Naam boliye.", "NOVA");
+  }
+
+  const user = await findUserByIdentifier(identifier);
+  if (!user) {
+    return chatResponse(`Boss, "${identifier}" naam ka player nahi mila.`, "NOVA");
+  }
+
+  const payload = {
+    userId: user.id,
+    userName: user.name || user.email,
+    amount: typeof parsed.amount === "number" ? parsed.amount : null,
+    reason: parsed.reason?.trim() || null,
+  };
+
+  if (payload.amount === null) {
+    await startPendingDraft("wallet_adjust", payload, "await_amount");
+    return chatResponse(
+      `Boss, kitna amount adjust karna hai "${payload.userName}" ke wallet mein? Add ke liye positive number, deduct ke liye negative bolo.`,
+      "NOVA"
+    );
+  }
+
+  if (!payload.reason) {
+    await startPendingDraft("wallet_adjust", payload, "await_reason");
+    return chatResponse("Boss, iski wajah kya hai?", "NOVA");
+  }
+
+  await startPendingDraft("wallet_adjust", payload, "confirm1");
+  return chatResponse(
+    `Boss, "${payload.userName}" ke wallet mein ₹${payload.amount} ${
+      payload.amount >= 0 ? "add" : "deduct"
+    } karna hai — wajah: ${payload.reason}. Pakka? "haan" boliye.`,
+    "NOVA"
+  );
+}
+
+async function handleWalletTurn(draft, command) {
+  const payload = draft.payload || {};
+
+  if (draft.stage === "await_amount") {
+    const amount = parseFloat(command.replace(/[^\d.\-]/g, ""));
+    if (Number.isNaN(amount)) {
+      return chatResponse("Boss, sirf number boliye, jaise 500 ya -200.", "NOVA");
+    }
+
+    const updated = { ...payload, amount };
+    if (!payload.reason) {
+      await updatePendingDraft({ payload: updated, stage: "await_reason" });
+      return chatResponse("Boss, iski wajah kya hai?", "NOVA");
+    }
+
+    await updatePendingDraft({ payload: updated, stage: "confirm1" });
+    return chatResponse(
+      `Boss, "${payload.userName}" ke wallet mein ₹${amount} ${
+        amount >= 0 ? "add" : "deduct"
+      } karna hai — wajah: ${payload.reason}. Pakka? "haan" boliye.`,
+      "NOVA"
+    );
+  }
+
+  if (draft.stage === "await_reason") {
+    const reason = command.trim();
+    if (!reason) return chatResponse("Boss, wajah boliye.", "NOVA");
+
+    await updatePendingDraft({ payload: { ...payload, reason }, stage: "confirm1" });
+    return chatResponse(
+      `Boss, "${payload.userName}" ke wallet mein ₹${payload.amount} ${
+        payload.amount >= 0 ? "add" : "deduct"
+      } karna hai — wajah: ${reason}. Pakka? "haan" boliye.`,
+      "NOVA"
+    );
+  }
+
+  if (draft.stage === "confirm1") {
+    if (!isAffirmativePending(command)) {
+      return chatResponse('Boss, "haan" ya "cancel" boliye.', "NOVA");
+    }
+    await updatePendingDraft({ stage: "confirm2" });
+    return chatResponse(
+      'Boss, ye financial change hai, undo nahi hoga. Pakka? Exactly bolo: "haan pakka adjust karo"',
+      "NOVA"
+    );
+  }
+
+  if (draft.stage === "confirm2") {
+    if (!/haan pakka adjust karo/i.test(command)) {
+      return chatResponse(
+        'Boss, exact phrase boliye: "haan pakka adjust karo", ya "cancel" boliye.',
+        "NOVA"
+      );
+    }
+
+    try {
+      await prisma.walletAdjustment.create({
+        data: { userId: payload.userId, amount: payload.amount, reason: payload.reason },
+      });
+      await resetPendingDraft();
+      return chatResponse(
+        `Ho gaya Boss, "${payload.userName}" ke wallet mein ₹${payload.amount} adjust kar diya.`,
+        "NOVA"
+      );
+    } catch (err) {
+      await resetPendingDraft();
+      await logCortexError("personal/command:wallet_adjust", err);
+      return chatResponse("Boss, adjust karte waqt error aaya.", "NOVA");
+    }
+  }
+
+  await resetPendingDraft();
+  return chatResponse("Boss, kuch gadbad ho gayi.", "NOVA");
+}
+
+// ============================================
+// RESCHEDULE TOURNAMENT
+// ============================================
+
+async function handleRescheduleStart(command) {
+  const title = await extractTournamentTitleFromText(command);
+  if (!title) {
+    return chatResponse("Boss, kaunsa tournament reschedule karna hai?", "ARIA");
+  }
+
+  const tournament = await prisma.tournament.findFirst({
+    where: { title: { contains: title, mode: "insensitive" } },
+  });
+
+  if (!tournament) {
+    return chatResponse(`Boss, "${title}" naam ka tournament nahi mila.`, "ARIA");
+  }
+
+  await startPendingDraft(
+    "reschedule_tournament",
+    { tournamentId: tournament.id, tournamentTitle: tournament.title },
+    "await_datetime"
+  );
+
+  return chatResponse(`Boss, "${tournament.title}" ka naya date aur time kya hoga?`, "ARIA");
+}
+
+async function handleRescheduleTurn(draft, command) {
+  const payload = draft.payload || {};
+
+  if (draft.stage === "await_datetime") {
+    const raw = await askCortexRaw(`Convert this into an ISO 8601 datetime (assume Asia/Kolkata timezone if none given, assume year ${new Date().getFullYear()} if none given). Reply with ONLY the ISO datetime string, nothing else, no explanation.
+Sentence: "${command}"`);
+
+    const parsedDate = new Date(raw.trim());
+    if (Number.isNaN(parsedDate.getTime())) {
+      return chatResponse("Boss, date/time samajh nahi aaya, dobara clearly boliye.", "ARIA");
+    }
+
+    await updatePendingDraft({
+      payload: { ...payload, newStartTime: parsedDate.toISOString() },
+      stage: "confirm1",
+    });
+
+    const displayTime = parsedDate.toLocaleString("en-IN", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: "Asia/Kolkata",
+    });
+
+    return chatResponse(
+      `Boss, "${payload.tournamentTitle}" ko ${displayTime} pe reschedule karna hai. Pakka? "haan" boliye.`,
+      "ARIA"
+    );
+  }
+
+  if (draft.stage === "confirm1") {
+    if (!isAffirmativePending(command)) {
+      return chatResponse('Boss, "haan" ya "cancel" boliye.', "ARIA");
+    }
+
+    try {
+      await prisma.tournament.update({
+        where: { id: payload.tournamentId },
+        data: { startTime: new Date(payload.newStartTime), reminderSent: false },
+      });
+      await resetPendingDraft();
+      return chatResponse(`Ho gaya Boss, "${payload.tournamentTitle}" reschedule kar diya.`, "ARIA");
+    } catch (err) {
+      await resetPendingDraft();
+      await logCortexError("personal/command:reschedule", err);
+      return chatResponse("Boss, reschedule karte waqt error aaya.", "ARIA");
+    }
+  }
+
+  await resetPendingDraft();
+  return chatResponse("Boss, kuch gadbad ho gayi.", "ARIA");
+}
+
+// ============================================
+// GENERIC PENDING-ACTION DISPATCH
+// ============================================
+
+async function handlePendingTurn(draft, command) {
+  if (isCancelWordPending(command)) {
+    await resetPendingDraft();
+    return chatResponse("Theek hai Boss, cancel kar diya.", "CORTEX");
+  }
+
+  if (draft.kind === "ban_player") return handleBanTurn(draft, command);
+  if (draft.kind === "wallet_adjust") return handleWalletTurn(draft, command);
+  if (draft.kind === "reschedule_tournament") return handleRescheduleTurn(draft, command);
+
+  await resetPendingDraft();
+  return chatResponse("Boss, kuch gadbad ho gayi.", "CORTEX");
+}
+
+// ============================================
+// GRIEVANCE RESOLUTION (single-shot)
+// ============================================
+
+async function handleGrievanceCommand(command) {
+  const raw = await askCortexRaw(`Extract grievance action details from this sentence as JSON only, no markdown:
+{"action": "list" or "resolve", "grievance_id": <number or null>, "resolution": "<resolution text if mentioned, else null>", "status": "RESOLVED" or "ESCALATED" or "REJECTED"}
+Default action to "list" if no specific grievance ID is mentioned. Default status to "RESOLVED" if action is "resolve" and no status mentioned.
+Sentence: "${command}"`);
+
+  let parsed = {};
+  try {
+    parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+  } catch {
+    parsed = { action: "list" };
+  }
+
+  if (parsed.action === "resolve" && parsed.grievance_id) {
+    try {
+      const grievance = await prisma.grievance.update({
+        where: { id: Number(parsed.grievance_id) },
+        data: {
+          status: parsed.status || "RESOLVED",
+          resolution: parsed.resolution || "Resolved via CORTEX.",
+          resolvedAt: new Date(),
+        },
+      });
+      return chatResponse(
+        `Ho gaya Boss, grievance #${grievance.id} "${grievance.status}" mark kar diya.`,
+        "ELARA"
+      );
+    } catch (err) {
+      return chatResponse(
+        `Boss, grievance #${parsed.grievance_id} nahi mila ya update fail hua.`,
+        "ELARA"
+      );
+    }
+  }
+
+  const pending = await prisma.grievance.findMany({
+    where: { status: { in: ["OPEN", "IN_REVIEW"] } },
+    include: { user: true },
+    take: 10,
+    orderBy: { raisedAt: "asc" },
+  });
+
+  if (pending.length === 0) {
+    return chatResponse("Boss, koi pending grievance nahi hai.", "ELARA");
+  }
+
+  const preview = pending
+    .map((g) => `#${g.id} ${g.user?.name || "player"} - ${g.subject}`)
+    .join(", ");
+
+  return chatResponse(`Boss, ${pending.length} pending grievance hain: ${preview}.`, "ELARA");
+}
+
+// ============================================
+// WEEKLY REVENUE REPORT (single-shot)
+// ============================================
+
+async function handleRevenueReportCommand() {
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  const [payments, rewards, withdrawals] = await Promise.all([
+    prisma.entryPayment.aggregate({
+      where: { status: "PAID", createdAt: { gte: weekAgo } },
+      _sum: { amount: true },
+      _count: true,
+    }),
+    prisma.tournamentReward.aggregate({
+      where: { createdAt: { gte: weekAgo } },
+      _sum: { amount: true },
+    }),
+    prisma.withdrawalRequest.aggregate({
+      where: { status: "Paid", updatedAt: { gte: weekAgo } },
+      _sum: { amount: true },
+    }),
+  ]);
+
+  const revenue = payments._sum.amount || 0;
+  const payouts = rewards._sum.amount || 0;
+  const paidOut = withdrawals._sum.amount || 0;
+  const net = revenue - paidOut;
+
+  return chatResponse(
+    `Boss, is hafte ka report — Revenue: ₹${revenue} (${payments._count} entries), Rewards allocated: ₹${payouts}, Withdrawals paid: ₹${paidOut}, Net cash position: ₹${net}.`,
+    "NOVA"
+  );
+}
+
+// ============================================
+// TOURNAMENT POSTER GENERATION (single-shot)
+// ============================================
+
+async function handlePosterCommand(command) {
+  const title = await extractTournamentTitleFromText(command);
+  if (!title) {
+    return chatResponse("Boss, kis tournament ka poster banau?", "ARIA");
+  }
+
+  const tournament = await prisma.tournament.findFirst({
+    where: { title: { contains: title, mode: "insensitive" } },
+  });
+
+  if (!tournament) {
+    return chatResponse(`Boss, "${title}" naam ka tournament nahi mila.`, "ARIA");
+  }
+
+  try {
+    const imageDataUri = await generateImage(
+      `Esports tournament poster for "${tournament.title}", game: ${tournament.game}. Bold, high-energy gaming aesthetic, dark background with neon accents, cinematic lighting.`
+    );
+
+    if (!imageDataUri) {
+      return chatResponse("Boss, poster generate nahi ho paya.", "ARIA");
+    }
+
+    await prisma.tournament.update({
+      where: { id: tournament.id },
+      data: { posterUrl: imageDataUri },
+    });
+
+    return chatResponse(`Boss, "${tournament.title}" ka poster ban gaya aur save ho gaya.`, "ARIA");
+  } catch (err) {
+    await logCortexError("personal/command:poster_gen", err);
+    return chatResponse(
+      "Boss, poster generate karte waqt error aaya — ho sakta hai image generation billing enable na ho.",
+      "ARIA"
+    );
+  }
+}
+
+// ============================================
+// SINGLE-STEP DISPATCH
 // ============================================
 
 async function runStep({ step, command, uid, approved, approvalMethod, riskHint }) {
@@ -912,9 +1343,6 @@ export async function POST(request) {
   }
 
   try {
-    // ============================================
-    // 0) TOURNAMENT CREATION WIZARD
-    // ============================================
     if (!resumingSteps) {
       const draft = await getDraft();
 
@@ -935,6 +1363,11 @@ export async function POST(request) {
       const notifyDraft = await getNotifyDraft();
       if (notifyDraft && notifyDraft.active) {
         return await handleNotifyTurn(notifyDraft, command);
+      }
+
+      const pendingDraft = await getPendingDraft();
+      if (pendingDraft && pendingDraft.active) {
+        return await handlePendingTurn(pendingDraft, command);
       }
 
       if (command && isTournamentCreateIntent(command)) {
@@ -969,13 +1402,37 @@ Is command ko poora karne ke liye ek single PostgreSQL UPDATE query likho. Rules
         await startDbWriteDraft(command, sql);
 
         return chatResponse(
-          `Boss, ye query chalाऊँga: ${sql}. Confirm karu? "haan" boliye.`,
+          `Boss, ye query chalaunga: ${sql}. Confirm karu? "haan" boliye.`,
           "CORTEX"
         );
       }
 
       if (command && isNotifyJoinersIntent(command)) {
         return await handleNotifyStart(command);
+      }
+
+      if (command && isBanIntent(command)) {
+        return await handleBanStart(command);
+      }
+
+      if (command && isWalletAdjustIntent(command)) {
+        return await handleWalletAdjustStart(command);
+      }
+
+      if (command && isRescheduleIntent(command)) {
+        return await handleRescheduleStart(command);
+      }
+
+      if (command && isGrievanceIntent(command)) {
+        return await handleGrievanceCommand(command);
+      }
+
+      if (command && isRevenueReportIntent(command)) {
+        return await handleRevenueReportCommand();
+      }
+
+      if (command && isPosterIntent(command)) {
+        return await handlePosterCommand(command);
       }
     }
 
@@ -1068,8 +1525,6 @@ Is command ko poora karne ke liye ek single PostgreSQL UPDATE query likho. Rules
           remainingSteps: steps.slice(i),
         });
       }
-
-      
 
       await updateContextFromResult(step, result);
 
