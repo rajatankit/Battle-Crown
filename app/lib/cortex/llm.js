@@ -512,7 +512,7 @@ async function askGroq(userText, systemPrompt) {
         { role: "user", content: userText },
       ],
       temperature: 0.6,
-      max_tokens: 200,
+      max_tokens: 1000,
     }),
   });
 
@@ -559,7 +559,7 @@ async function askGemini(userText, systemPrompt) {
       ],
       generationConfig: {
         temperature: 0.6,
-        maxOutputTokens: 200,
+        maxOutputTokens: 1000,
       },
     }),
   });
