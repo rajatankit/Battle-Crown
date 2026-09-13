@@ -68,7 +68,9 @@ import {
   isGrievanceIntent,
   isRevenueReportIntent,
   isPosterIntent,
+  isMatchUpdateIntent,
 } from "../../../lib/cortex/adminActions";
+
 import { getCortexContext, setLastTournament, setLastPlayer, hasPronounReference, resolvePronouns, getRecentConversation, setLastList, hasOrdinalReference, resolveOrdinalReference } from "../../../lib/cortex/context";
 import { findTournamentByTitleFuzzy, findUserByIdentifierFuzzy } from "../../../lib/cortex/fuzzyMatch";
 import { normalizeCommonTypos } from "../../../lib/cortex/textNormalize";
@@ -1179,6 +1181,153 @@ async function handleRescheduleStart(command) {
   return chatResponse(`Boss, "${tournament.title}" ka naya date aur time kya hoga?`, "ARIA");
 }
 
+// ============================================
+// MATCH RESULT UPDATE (before/after confirm + high-risk approval)
+// ============================================
+
+async function findMatchByIdentifier(command) {
+  const raw = await askCortexRaw(`Extract match-identifying details from this sentence as JSON only, no markdown:
+{"tournament": "<tournament name if mentioned, else null>", "player": "<player name/ign/uid if mentioned, else null>"}
+Sentence: "${command}"`);
+
+  let parsed = {};
+  try {
+    parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
+  } catch {
+    return null;
+  }
+
+  if (!parsed.tournament && !parsed.player) return null;
+
+  const where = {};
+  if (parsed.tournament) {
+    where.tournament = { title: { contains: parsed.tournament, mode: "insensitive" } };
+  }
+  if (parsed.player) {
+    where.OR = [
+      { ign: { contains: parsed.player, mode: "insensitive" } },
+      { uid: { contains: parsed.player, mode: "insensitive" } },
+    ];
+  }
+
+  return prisma.matchHistory.findFirst({
+    where,
+    include: { tournament: true },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+async function handleMatchUpdateStart(command) {
+  const match = await findMatchByIdentifier(command);
+
+  if (!match) {
+    return chatResponse(
+      "Boss, kaunsa match? Tournament ka naam ya player ka naam/IGN boliye.",
+      "ORION"
+    );
+  }
+
+  await startPendingDraft(
+    "update_match_result",
+    {
+      matchId: match.id,
+      tournamentTitle: match.tournament?.title || "unknown",
+      playerLabel: match.ign || match.uid || "player",
+      current: {
+        kills: match.kills,
+        placement: match.placement,
+        resultStatus: match.resultStatus,
+      },
+      changes: {},
+    },
+    "await_changes"
+  );
+
+  return chatResponse(
+    `Boss, "${match.tournament?.title}" mein "${match.ign || match.uid}" ka current record — Kills: ${match.kills}, Placement: ${match.placement ?? "N/A"}, Status: ${match.resultStatus}. Kya update karna hai?`,
+    "ORION"
+  );
+}
+
+async function handleMatchUpdateTurn(draft, command) {
+  const payload = draft.payload || {};
+
+  if (draft.stage === "await_changes") {
+    const raw = await askCortexRaw(`Boss said this about updating a match result: "${command}"
+Extract ONLY the fields being changed as JSON, no markdown:
+{"kills": <number or null>, "placement": <number or null>, "resultStatus": "VERIFIED" or "REJECTED" or "ADMIN_REVIEW" or null}
+Only include a field if Boss actually mentioned changing it — use null for anything not mentioned.`);
+
+    let changes = {};
+    try {
+      changes = JSON.parse(raw.replace(/```json|```/g, "").trim());
+    } catch {
+      return chatResponse("Boss, samajh nahi aaya kya update karna hai, dobara boliye.", "ORION");
+    }
+
+    const cleaned = {};
+    for (const [k, v] of Object.entries(changes)) {
+      if (v !== null && v !== undefined) cleaned[k] = v;
+    }
+
+    if (Object.keys(cleaned).length === 0) {
+      return chatResponse("Boss, kya badalna hai clearly boliye — kills, placement, ya status.", "ORION");
+    }
+
+    const before = payload.current;
+    const after = { ...before, ...cleaned };
+
+    await updatePendingDraft({ payload: { ...payload, changes: cleaned }, stage: "confirm1" });
+
+    return chatResponse(
+      `Boss, "${payload.playerLabel}" ka record — Pehle: Kills ${before.kills}, Placement ${before.placement ?? "N/A"}, Status ${before.resultStatus}. Ab: Kills ${after.kills}, Placement ${after.placement ?? "N/A"}, Status ${after.resultStatus}. Confirm karu? "haan" boliye.`,
+      "ORION"
+    );
+  }
+
+  if (draft.stage === "confirm1") {
+    if (!isAffirmativePending(command)) {
+      return chatResponse('Boss, "haan" ya "cancel" boliye.', "ORION");
+    }
+
+    // High-risk — route through the same approval flow other risky
+    // actions use, instead of writing directly.
+    try {
+      const result = await cortexDispatch({
+        agentId: "ORION",
+        action: "manage_match",
+        task: "update_match_result",
+        context: {
+          source: "personal_voice",
+          match_id: payload.matchId,
+          ...payload.changes,
+          risk: "high",
+        },
+      });
+
+      const { needsApprove, msg, verificationMatch } = detectApproval(result);
+      if (needsApprove) {
+        await resetPendingDraft();
+        return approvalRequiredResponse({ result, msg, verificationMatch, agentId: "ORION" });
+      }
+
+      await resetPendingDraft();
+
+      if (result?.success || result?.status === "updated") {
+        return chatResponse(`Ho gaya Boss, "${payload.playerLabel}" ka record update kar diya.`, "ORION");
+      }
+      return chatResponse(`Boss, update fail ho gaya: ${result?.message || "unknown error"}`, "ORION");
+    } catch (err) {
+      await resetPendingDraft();
+      await logCortexError("personal/command:match_update", err);
+      return chatResponse("Boss, match update karte waqt error aaya.", "ORION");
+    }
+  }
+
+  await resetPendingDraft();
+  return chatResponse("Boss, kuch gadbad ho gayi.", "ORION");
+}
+
 async function handleRescheduleTurn(draft, command) {
   const payload = draft.payload || {};
 
@@ -1264,6 +1413,7 @@ async function handlePendingTurn(draft, command, uid) {
   if (draft.kind === "ban_player") return handleBanTurn(draft, command);
   if (draft.kind === "wallet_adjust") return handleWalletTurn(draft, command);
   if (draft.kind === "reschedule_tournament") return handleRescheduleTurn(draft, command);
+  if (draft.kind === "update_match_result") return handleMatchUpdateTurn(draft, command);
 
   await resetPendingDraft();
   return chatResponse("Boss, kuch gadbad ho gayi.", "CORTEX");
@@ -1644,6 +1794,10 @@ Is command ko poora karne ke liye ek single PostgreSQL UPDATE query likho. Rules
 
       if (command && isRescheduleIntent(command)) {
         return await handleRescheduleStart(command);
+      }
+
+      if (command && isMatchUpdateIntent(command)) {
+        return await handleMatchUpdateStart(command);
       }
 
       if (command && isGrievanceIntent(command)) {

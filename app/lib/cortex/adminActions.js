@@ -16,3 +16,9 @@ export function isPosterIntent(text) {
   const mentionsAction = /tournament|bana|generate|create|design/.test(t);
   return mentionsVisual && mentionsAction;
 }
+
+export function isMatchUpdateIntent(command) {
+  return /\b(match\s*result|screenshot|kills?|placement)\b.*\b(update|badal|change)|update.*\bmatch\b/i.test(
+    command
+  );
+}
