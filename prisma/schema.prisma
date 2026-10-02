@@ -37,12 +37,18 @@ model User {
   bannedAt              DateTime?
 
   // Relations
-  matchHistories      MatchHistory[]
-  entryPayments       EntryPayment[]
-  tournamentRewards   TournamentReward[]
-  withdrawalRequests  WithdrawalRequest[]
-  grievances          Grievance[]
-  walletAdjustments   WalletAdjustment[]
+  matchHistories       MatchHistory[]
+  entryPayments        EntryPayment[]
+  tournamentRewards    TournamentReward[]
+  withdrawalRequests   WithdrawalRequest[]
+  grievances           Grievance[]
+  walletAdjustments    WalletAdjustment[]
+  crownWallet          CrownWallet?
+  crownRewards         CrownReward[]
+  organizedTournaments Tournament[]        @relation("TournamentOrganizer")
+  subscriptions        UserSubscription[]
+  subscriptionOrders   SubscriptionOrder[]
+  aiUsageLogs          AiUsageLog[]
 
   @@map("User")
 }
@@ -65,6 +71,8 @@ model Tournament {
   killReward           Float?    @default(5)
   roomId               String?
   roomPassword         String?
+  organizerType        String    @default("ADMIN") // ADMIN | User
+  createdByUserId      Int?      // set when organizerType = "User" (crown-unlocked / subscription self-organized tournament) — doubles as the "organizerId" FK
   startTime            DateTime? @db.Timestamp(6)
   reminderSent         Boolean   @default(false)
   lowJoinAlertSent     Boolean   @default(false)
@@ -78,12 +86,26 @@ model Tournament {
   verificationRequired    Boolean @default(true)
   noWageringDeclaration   Boolean @default(true)
 
+  // ------------------------------------------------------------
+  // CROWN REWARD CONFIG (new) — legacy Float prize/killReward
+  // fields above are untouched and no longer used for payouts.
+  // ------------------------------------------------------------
+  firstPrizeCrowns  Int @default(0)
+  secondPrizeCrowns Int @default(0)
+  thirdPrizeCrowns  Int @default(0)
+  killRewardCrowns  Int @default(1)
+  joinRewardCrowns  Int @default(1)
+
   // Relations
   entryPayments        EntryPayment[]
   tournamentRewards    TournamentReward[]
   matchHistories       MatchHistory[]
-  grievances           Grievance[]
+  grievances            Grievance[]
+  crownTransactions     CrownTransaction[]
+  crownRewards          CrownReward[]
+  organizer             User?              @relation("TournamentOrganizer", fields: [createdByUserId], references: [id])
 
+  @@index([createdByUserId])
   @@map("tournaments")
 }
 
@@ -108,6 +130,7 @@ model MatchHistory {
   tournament       Tournament?       @relation(fields: [tournamentId], references: [id])
   entryPayments    EntryPayment[]
   tournamentReward TournamentReward?
+  crownRewards     CrownReward[]
 
   @@index([userId])
   @@index([tournamentId])
@@ -118,6 +141,12 @@ model MatchHistory {
 // ============================================================
 // DIRECT PAYMENT — entry fee paid straight to Cashfree per join,
 // no stored wallet balance anywhere.
+//
+// NOTE: as of the pivot to a no-player-payment model (revenue via
+// organizer subscriptions + sponsors instead), these three models
+// (EntryPayment, TournamentReward, WithdrawalRequest) are dormant —
+// left in place for now in case any legacy data references them,
+// but no new rows should be created by the app going forward.
 // ============================================================
 
 model EntryPayment {
@@ -177,6 +206,140 @@ model WithdrawalRequest {
 
   @@index([userId])
   @@map("withdrawal_requests")
+}
+
+// ============================================================
+// CROWN CURRENCY SYSTEM
+//
+// Crowns are earned ONLY by playing free tournaments — there is
+// no path anywhere to purchase them with real money. This keeps
+// them outside the legal definition of "other stakes" (which
+// only applies to credits/coins bought with money). Crowns can
+// be spent to unlock self-organizing a (free) tournament.
+// ============================================================
+
+model CrownWallet {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique
+  balance   Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions CrownTransaction[]
+
+  @@map("crown_wallets")
+}
+
+model CrownTransaction {
+  id           Int      @id @default(autoincrement())
+  walletId     Int
+  amount       Int      // positive = earned, negative = spent
+  type         String   // "earned_match" | "spent_organize_tournament" | "admin_adjustment"
+  reason       String?
+  tournamentId Int?
+  createdAt    DateTime @default(now())
+
+  wallet     CrownWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  tournament Tournament? @relation(fields: [tournamentId], references: [id])
+
+  @@index([walletId])
+  @@map("crown_transactions")
+}
+
+// ------------------------------------------------------------
+// CrownReward — audit ledger, one row per crown credit event
+// (join bonus / placement / per-kill). Separate from
+// CrownTransaction (wallet ledger) so the UI can show a clean
+// "why did I get these crowns" history per tournament/match.
+// ------------------------------------------------------------
+model CrownReward {
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  tournamentId   Int
+  matchHistoryId Int?
+  amount         Int
+  reason         String   // "1st Place" | "2nd Place" | "3rd Place" | "Per Kill x3" | "Join Bonus"
+  createdAt      DateTime @default(now())
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tournament   Tournament    @relation(fields: [tournamentId], references: [id])
+  matchHistory MatchHistory? @relation(fields: [matchHistoryId], references: [id])
+
+  @@index([userId])
+  @@index([tournamentId])
+  @@map("crown_rewards")
+}
+
+// ============================================================
+// SUBSCRIPTION SYSTEM
+// ============================================================
+
+model SubscriptionPlan {
+  id                      Int      @id @default(autoincrement())
+  name                    String   @unique // "upgrade" | "pro" | "promax"
+  priceMonthlyPaisa       Int
+  priceAnnualPaisa        Int
+  monthlyTournamentLimit  Int      // -1 = unlimited, 0 = not allowed via subscription path
+  dailyAiQueryLimit       Int      // -1 = unlimited
+  crownOrganizeCost       Int?     // null = crown-organize path not allowed on this plan
+  featuresJson            Json
+  active                  Boolean  @default(true)
+  createdAt               DateTime @default(now())
+
+  subscriptions      UserSubscription[]
+  subscriptionOrders SubscriptionOrder[]
+
+  @@map("subscription_plans")
+}
+
+model UserSubscription {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  planId        Int
+  status        String   @default("active") // active | expired | cancelled
+  billingCycle  String   // "monthly" | "annual"
+  startsAt      DateTime
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  user User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@index([userId, status])
+  @@map("user_subscriptions")
+}
+
+// Tracks Cashfree order/payment for subscription checkout, mirroring
+// EntryPayment's paymentGatewayId-unique pattern so the webhook stays
+// idempotent (duplicate delivery = no-op).
+model SubscriptionOrder {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  planId        Int
+  billingCycle  String   // "monthly" | "annual"
+  amountPaisa   Int
+  cfOrderId     String   @unique
+  cfPaymentId   String?  @unique
+  status        String   @default("PENDING") // PENDING | PAID | FAILED
+  createdAt     DateTime @default(now())
+
+  user User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan SubscriptionPlan @relation(fields: [planId], references: [id])
+
+  @@index([userId])
+  @@map("subscription_orders")
+}
+
+model AiUsageLog {
+  id     Int      @id @default(autoincrement())
+  userId Int
+  date   DateTime @db.Date
+  count  Int      @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@map("ai_usage_logs")
 }
 
 // ============================================================
@@ -290,8 +453,8 @@ model ErrorLog {
   route     String
   message   String
   stack     String?
-  createdAt DateTime @default(now())
-  alerted   Boolean  @default(false)
+  createdAt DateTime  @default(now())
+  alerted   Boolean   @default(false)
 }
 
 model Alert {
@@ -352,8 +515,6 @@ model AtlasDraft {
   generatedCode  String?
   updatedAt      DateTime @updatedAt
 }
-
-
 
 model DbWriteDraft {
   id           Int      @id @default(1)

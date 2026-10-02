@@ -16,66 +16,201 @@ export async function POST(req) {
     const email = formData.get("email");
     const matchId = formData.get("matchId");
 
+    // ==============================
+    // VALIDATION
+    // ==============================
+
     if (!file || !email || !matchId) {
       return NextResponse.json(
-        { success: false, message: "Screenshot file, email, and matchId are required!" },
+        {
+          success: false,
+          message:
+            "Screenshot file, email, and matchId are required!",
+        },
         { status: 400 }
       );
     }
 
     const parsedMatchId = Number(matchId);
-    if (isNaN(parsedMatchId)) {
-      return NextResponse.json({ success: false, message: "Invalid matchId format" }, { status: 400 });
-    }
 
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) {
-      return NextResponse.json({ success: false, message: "User not found in database!" }, { status: 404 });
-    }
-
-    const existingMatch = await prisma.matchHistory.findUnique({
-      where: { id: parsedMatchId },
-    });
-
-    if (!existingMatch) {
-      return NextResponse.json({ success: false, message: "Match record not found!" }, { status: 404 });
-    }
-
-    if (existingMatch.userId !== user.id) {
-      return NextResponse.json({ success: false, message: "This match doesn't belong to you!" }, { status: 403 });
-    }
-
-    if (existingMatch.screenshotUrl) {
+    if (
+      !Number.isInteger(parsedMatchId) ||
+      parsedMatchId <= 0
+    ) {
       return NextResponse.json(
-        { success: false, message: "Screenshot already submitted for this match!" },
+        {
+          success: false,
+          message: "Invalid matchId format",
+        },
         { status: 400 }
       );
     }
 
-    // Upload to Cloudinary instead of local disk — Vercel's filesystem is read-only.
-    const bytes = await file.arrayBuffer();
+    // ==============================
+    // FIND USER
+    // ==============================
+
+    const user = await prisma.user.findUnique({
+      where: {
+        email,
+      },
+    });
+
+    if (!user) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "User not found in database!",
+        },
+        { status: 404 }
+      );
+    }
+
+    // ==============================
+    // FIND MATCH
+    // ==============================
+
+    const existingMatch =
+      await prisma.matchHistory.findUnique({
+        where: {
+          id: parsedMatchId,
+        },
+      });
+
+    if (!existingMatch) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Match record not found!",
+        },
+        { status: 404 }
+      );
+    }
+
+    // ==============================
+    // CHECK MATCH OWNER
+    // ==============================
+
+    if (existingMatch.userId !== user.id) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "This match doesn't belong to you!",
+        },
+        { status: 403 }
+      );
+    }
+
+    // ==============================
+    // PREVENT DUPLICATE SCREENSHOT
+    // ==============================
+
+    if (existingMatch.screenshotUrl) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Screenshot already submitted for this match!",
+        },
+        { status: 400 }
+      );
+    }
+
+    // ==============================
+    // CHECK FILE TYPE
+    // ==============================
+
+    if (
+      !file.type ||
+      !file.type.startsWith("image/")
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Only image files are allowed!",
+        },
+        { status: 400 }
+      );
+    }
+
+    // ==============================
+    // UPLOAD TO CLOUDINARY
+    // ==============================
+
+    const bytes =
+      await file.arrayBuffer();
+
     const buffer = Buffer.from(bytes);
-    const base64Data = `data:${file.type};base64,${buffer.toString("base64")}`;
 
-    const uploadResult = await cloudinary.uploader.upload(base64Data, {
-      folder: "battle-crown-screenshots",
-      resource_type: "image",
-    });
+    const base64Data =
+      `data:${file.type};base64,` +
+      buffer.toString("base64");
 
-    const screenshotUrl = uploadResult.secure_url;
+    const uploadResult =
+      await cloudinary.uploader.upload(
+        base64Data,
+        {
+          folder:
+            "battle-crown-screenshots",
 
-    const updatedMatch = await prisma.matchHistory.update({
-      where: { id: parsedMatchId },
-      data: { screenshotUrl },
-    });
+          resource_type: "image",
+        }
+      );
+
+    const screenshotUrl =
+      uploadResult.secure_url;
+
+    // ==============================
+    // UPDATE MATCH
+    // ==============================
+
+    const updatedMatch =
+      await prisma.matchHistory.update({
+        where: {
+          id: parsedMatchId,
+        },
+
+        data: {
+          screenshotUrl,
+
+          // IMPORTANT:
+          // Screenshot submit hone ke baad
+          // match admin verification queue mein jayega.
+          resultStatus:
+            "Pending Verification",
+        },
+      });
+
+    // ==============================
+    // SUCCESS
+    // ==============================
 
     return NextResponse.json({
       success: true,
-      message: "Screenshot uploaded successfully!",
+
+      message:
+        "Screenshot uploaded successfully and sent for verification!",
+
       matchRecord: updatedMatch,
     });
   } catch (error) {
-    console.error("Match upload failed error:", error);
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    console.error(
+      "Match upload failed error:",
+      error
+    );
+
+    return NextResponse.json(
+      {
+        success: false,
+        message:
+          error?.message ||
+          "Screenshot upload failed",
+      },
+      { status: 500 }
+    );
   }
 }

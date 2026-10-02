@@ -273,7 +273,7 @@ export default function PaymentHistory({ userEmail, getIdToken = async () => nul
 
           return (
             <div
-              key={p.id || p.tournamentId || index}
+              key={p.id ?? `${p.tournamentId || "unknown"}-${index}`}
               className="px-4 py-3 hover:bg-white/[0.02] transition"
             >
               <div className="flex items-center gap-3">

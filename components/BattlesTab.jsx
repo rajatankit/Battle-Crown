@@ -20,6 +20,14 @@ function TournamentCard({ tournament, variant = "soon", onJoin }) {
   const joinedCount = tournament.joinedCount || tournament.joined_players_count || 0;
   const isFull = joinedCount >= maxSlots;
 
+  // Crown-first entry label, falls back to ₹ for any tournament doc that
+  // hasn't been migrated to crown fields yet.
+  const entryLabel = tournament.joinRewardCrowns
+    ? `+${tournament.joinRewardCrowns} 👑`
+    : tournament.entryFee
+    ? `₹${tournament.entryFee}`
+    : "FREE";
+
   useEffect(() => {
     if (!tournament.slides?.length) return;
     const t = setInterval(() => setCurrentSlide((p) => (p + 1) % tournament.slides.length), 3500);
@@ -37,7 +45,8 @@ function TournamentCard({ tournament, variant = "soon", onJoin }) {
             {(tournament.game || "MATCH").toUpperCase()} • {tournament.map}
           </p>
           <p className="text-[10px] text-gray-400">
-            ₹{tournament.entryFee} Entry {tournament.rank ? `• Rank #${tournament.rank}` : ""}
+            {tournament.placement ? `Placement #${tournament.placement}` : "Completed"}
+            {tournament.crownsEarned ? ` • +${tournament.crownsEarned} 👑 earned` : ""}
           </p>
         </div>
         <button className="bg-[#161d2b] hover:bg-cyan-950 text-cyan-400 border border-cyan-800 text-[10px] font-black uppercase px-3 py-1.5 rounded flex-shrink-0">
@@ -70,7 +79,12 @@ function TournamentCard({ tournament, variant = "soon", onJoin }) {
             </span>
           )}
         </div>
-        <div className="absolute top-2 right-2">
+        <div className="absolute top-2 right-2 flex items-center gap-1.5">
+          {tournament.firstPrizeCrowns > 0 && (
+            <span className="text-xs font-bold px-2.5 py-1 bg-black/90 border border-yellow-500/50 text-yellow-400 rounded-md shadow-lg backdrop-blur-sm">
+              👑 {tournament.firstPrizeCrowns}
+            </span>
+          )}
           <span className="text-xs font-bold px-3 py-1.5 bg-black/90 border border-yellow-500/50 text-yellow-400 rounded-md shadow-lg backdrop-blur-sm">
             {joinedCount} / {maxSlots}
           </span>
@@ -93,8 +107,8 @@ function TournamentCard({ tournament, variant = "soon", onJoin }) {
           <span className="text-xs font-mono font-bold text-yellow-400">{displayMode}</span>
         </div>
         <div>
-          <span className="text-[10px] text-gray-400 font-mono uppercase block">ENTRY FEE</span>
-          <span className="text-xs font-mono font-bold text-green-400">₹{tournament.entryFee}</span>
+          <span className="text-[10px] text-gray-400 font-mono uppercase block">ENTRY</span>
+          <span className="text-xs font-mono font-bold text-green-400">{entryLabel}</span>
         </div>
         <button
           onClick={() => onJoin(tournament)}

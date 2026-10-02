@@ -35,6 +35,13 @@ function isFreeFireEntry(entry) {
 // live tournaments, e.g. one BGMI + one Free Fire), the hero will auto-rotate
 // between them every 3s. Nothing breaks if only the old single prop is sent —
 // this is purely an additive, backward-compatible display change.
+//
+// CROWN DISPLAY: prize/entry text below prefers the new crown fields
+// (firstPrizeCrowns, joinRewardCrowns, etc.) when a tournament document
+// carries them, and falls back to the old ₹ fields for any tournament
+// doc that hasn't been migrated to the crown model yet. Once your admin
+// tournament-creation flow writes crown fields into Firestore, these
+// automatically switch over — no further code change needed here.
 // ─────────────────────────────────────────────────────────────────────────
 export default function HomeTab({
   displayName = "Player",
@@ -151,6 +158,22 @@ export default function HomeTab({
         ? GAME_BACKGROUNDS.ff
         : GAME_BACKGROUNDS.bgmi
       : null);
+
+  // Crown-first prize text, falls back to ₹ for un-migrated tournament docs
+  function prizeLabel(tournament) {
+    if (tournament.firstPrizeCrowns > 0) return `👑 ${tournament.firstPrizeCrowns} Prize`;
+    if (tournament.firstPrize || tournament.prizePool) {
+      return `₹${tournament.firstPrize || tournament.prizePool} Prize Pool`;
+    }
+    return "Free Entry";
+  }
+
+  // Crown-first entry text, falls back to ₹ for un-migrated tournament docs
+  function entryLabel(tournament) {
+    if (tournament.joinRewardCrowns) return `+${tournament.joinRewardCrowns} 👑 Join Bonus`;
+    if (tournament.entryFee) return `₹${tournament.entryFee} Entry`;
+    return "Free Entry";
+  }
 
   return (
     <div className="min-h-screen bg-[#0b0f17] text-white font-mono pb-24">
@@ -343,11 +366,7 @@ export default function HomeTab({
                 <div className="flex items-center gap-4 mt-1 text-[11px]">
 
                   <span className="text-yellow-400 font-bold">
-                    ₹
-                    {tournament.firstPrize ||
-                      tournament.prizePool ||
-                      0}{" "}
-                    Prize Pool
+                    {prizeLabel(tournament)}
                   </span>
 
                   <span className="text-gray-300">
@@ -489,7 +508,7 @@ export default function HomeTab({
                     {t.game?.toUpperCase() || "MATCH"} • {t.map}
                   </p>
                   <p className="text-[10px] text-gray-400">
-                    ₹{t.entryFee} Entry • {t.joinedCount || 0} / {t.maxSlots || 100} Players
+                    {entryLabel(t)} • {t.joinedCount || 0} / {t.maxSlots || 100} Players
                   </p>
                 </div>
                 <div className="text-right flex-shrink-0">

@@ -2,11 +2,6 @@
 
 import BottomNav from "./BottomNav";
 
-// ─────────────────────────────────────────────────────────────────────────
-// ProfileTab — mobile "Profile" screen. Purely presentational; all state
-// (edit mode, temp values, save handlers) lives in dashboard/page.js and is
-// passed down, same pattern as HomeTab.
-// ─────────────────────────────────────────────────────────────────────────
 export default function ProfileTab({
   displayName = "Player",
   playerLevel = 1,
@@ -45,24 +40,30 @@ export default function ProfileTab({
   onOpenLevelModal,
   onNavigate = () => {},
   activeTab = "profile",
+  // ── NEW props ──
+  crownBalance = 0,
+ currentPlan = "Free",
+  totalMatches = 0,
 }) {
-  const progressPct = Math.min((matchesTowardNext / Math.max(matchesNeededForNext, 1)) * 100, 100);
+  const progressPct = Math.min(
+    (matchesTowardNext / Math.max(matchesNeededForNext, 1)) * 100,
+    100
+  );
 
   return (
     <div className="min-h-screen bg-[#0b0f17] text-white font-mono pb-24">
       {/* Top bar */}
       <header className="flex items-center justify-between px-4 pt-5 pb-3">
-       <div className="flex items-center gap-2">
-  <img
-    src="/crown-logo.png"
-    alt="Battle Crown"
-    className="w-8 h-8 object-contain"
-  />
-
-  <span className="text-lg font-black italic tracking-tight">
-    BATTLE <span className="text-cyan-400">CROWN</span>
-  </span>
-</div>
+        <div className="flex items-center gap-2">
+          <img
+            src="/crown-logo.png"
+            alt="Battle Crown"
+            className="w-8 h-8 object-contain"
+          />
+          <span className="text-lg font-black italic tracking-tight">
+            BATTLE <span className="text-cyan-400">CROWN</span>
+          </span>
+        </div>
       </header>
 
       <div className="px-4 space-y-4">
@@ -70,217 +71,187 @@ export default function ProfileTab({
         <div className="flex items-center justify-between bg-[#0f141c]/90 border border-gray-800 rounded-xl p-4">
           <div className="flex items-center gap-3">
             <div className="w-14 h-14 rounded-full bg-gradient-to-br from-cyan-500 to-yellow-500 flex items-center justify-center text-xl font-black text-black flex-shrink-0">
-  {(ffIgn || bgmiIgn || displayName || "Player").charAt(0).toUpperCase()}
-</div>
-
-<div>
-  <p className="text-sm font-bold text-white">
-    {ffIgn || bgmiIgn || displayName || "Player"}
-  </p>
+              {(ffIgn || bgmiIgn || displayName || "Player").charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <p className="text-sm font-bold text-white">
+                {ffIgn || bgmiIgn || displayName || "Player"}
+              </p>
               <p className="text-[10px] text-yellow-400 font-bold">
                 {currentTier?.name} {currentTier?.badge}
               </p>
             </div>
           </div>
           <div className="text-right">
-            <span className="text-[9px] text-cyan-500 uppercase block font-black tracking-widest">Level</span>
-            <span className="text-xl font-black text-cyan-300 leading-none block">{playerLevel}</span>
+            <span className="text-[9px] text-cyan-500 uppercase block font-black tracking-widest">
+              Level
+            </span>
+            <span className="text-xl font-black text-cyan-300 leading-none block">
+              {playerLevel}
+            </span>
           </div>
         </div>
 
         <button
           onClick={() =>
-            isEditingProfile
-              ? onSaveProfile()
-              : setIsEditingProfile(true)
+            isEditingProfile ? onSaveProfile() : setIsEditingProfile(true)
           }
           className="w-full py-2.5 rounded-lg border border-cyan-500/30 bg-cyan-950/30 text-cyan-300 text-[10px] uppercase font-black tracking-wide"
         >
           {isEditingProfile ? "Save Profile ✓" : "Edit Profile ✍️"}
         </button>
 
-{/* BGMI Profile */}
-<div className="rounded-2xl border border-cyan-900/50 bg-[#0d141d]/95 overflow-hidden shadow-[0_8px_25px_rgba(0,0,0,0.25)]">
-
-  {/* Card Header */}
-  <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-cyan-950/40 via-cyan-950/15 to-transparent border-b border-cyan-900/40">
-    <div className="flex items-center gap-2.5">
-      <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/25 flex items-center justify-center">
-        <span className="text-base">🛡️</span>
-      </div>
-
-      <div>
-        <p className="text-[11px] font-black text-cyan-300 uppercase tracking-[0.14em]">
-          BGMI
-        </p>
-        <p className="text-[8px] text-gray-500 uppercase tracking-wider mt-0.5">
-          Player Profile
-        </p>
-      </div>
-    </div>
-
-    <span className="text-[8px] font-black uppercase tracking-widest text-cyan-500/70">
-      VERIFIED
-    </span>
-  </div>
-
-  {/* Details */}
-  <div className="p-3.5 space-y-2.5">
-
-    {/* IGN */}
-    <div className="flex items-center justify-between gap-3 bg-[#111a24] border border-gray-800/80 rounded-xl px-3.5 py-3">
-      <div className="flex items-center gap-2.5 min-w-0">
-        <div className="w-7 h-7 rounded-md bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center">
-          <span className="text-[11px] text-cyan-400 font-black">ID</span>
+        {/* BGMI Profile — same as pehle */}
+        <div className="rounded-2xl border border-cyan-900/50 bg-[#0d141d]/95 overflow-hidden shadow-[0_8px_25px_rgba(0,0,0,0.25)]">
+          <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-cyan-950/40 via-cyan-950/15 to-transparent border-b border-cyan-900/40">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/25 flex items-center justify-center">
+                <span className="text-base">🛡️</span>
+              </div>
+              <div>
+                <p className="text-[11px] font-black text-cyan-300 uppercase tracking-[0.14em]">
+                  BGMI
+                </p>
+                <p className="text-[8px] text-gray-500 uppercase tracking-wider mt-0.5">
+                  Player Profile
+                </p>
+              </div>
+            </div>
+            <span className="text-[8px] font-black uppercase tracking-widest text-cyan-500/70">
+              VERIFIED
+            </span>
+          </div>
+          <div className="p-3.5 space-y-2.5">
+            <div className="flex items-center justify-between gap-3 bg-[#111a24] border border-gray-800/80 rounded-xl px-3.5 py-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-7 h-7 rounded-md bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center">
+                  <span className="text-[11px] text-cyan-400 font-black">ID</span>
+                </div>
+                <div>
+                  <p className="text-[8px] text-gray-500 uppercase font-black tracking-widest">
+                    In-Game Name
+                  </p>
+                  <p className="text-[9px] text-gray-600 uppercase tracking-wide mt-0.5">
+                    IGN
+                  </p>
+                </div>
+              </div>
+              {isEditingProfile ? (
+                <input
+                  value={tempBgmiIgn}
+                  onChange={(e) => setTempBgmiIgn(e.target.value)}
+                  className="bg-black/80 border border-cyan-600/70 rounded-lg px-3 py-2 text-xs font-bold text-white w-40 outline-none focus:border-cyan-400"
+                />
+              ) : (
+                <span className="font-black text-[14px] text-white tracking-wide truncate max-w-[175px]">
+                  {bgmiIgn || "Not Added"}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center justify-between gap-3 bg-[#111a24] border border-gray-800/80 rounded-xl px-3.5 py-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-7 h-7 rounded-md bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center">
+                  <span className="text-[10px] text-cyan-400 font-black">#</span>
+                </div>
+                <div>
+                  <p className="text-[8px] text-gray-500 uppercase font-black tracking-widest">
+                    Player UID
+                  </p>
+                  <p className="text-[9px] text-gray-600 uppercase tracking-wide mt-0.5">
+                    Unique ID
+                  </p>
+                </div>
+              </div>
+              {isEditingProfile ? (
+                <input
+                  value={tempBgmiUid}
+                  onChange={(e) => setTempBgmiUid(e.target.value)}
+                  className="bg-black/80 border border-cyan-600/70 rounded-lg px-3 py-2 text-xs font-bold text-cyan-300 w-40 outline-none focus:border-cyan-400"
+                />
+              ) : (
+                <span className="font-black text-[13px] text-cyan-300 font-mono tracking-wider truncate max-w-[175px]">
+                  {bgmiUid || "Not Added"}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
-        <div>
-          <p className="text-[8px] text-gray-500 uppercase font-black tracking-widest">
-            In-Game Name
-          </p>
-          <p className="text-[9px] text-gray-600 uppercase tracking-wide mt-0.5">
-            IGN
-          </p>
+        {/* Free Fire Profile — same as pehle */}
+        <div className="rounded-2xl border border-orange-900/50 bg-[#0d141d]/95 overflow-hidden shadow-[0_8px_25px_rgba(0,0,0,0.25)]">
+          <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-orange-950/40 via-orange-950/15 to-transparent border-b border-orange-900/40">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-orange-500/10 border border-orange-500/25 flex items-center justify-center">
+                <span className="text-base">🔥</span>
+              </div>
+              <div>
+                <p className="text-[11px] font-black text-orange-300 uppercase tracking-[0.14em]">
+                  FREE FIRE
+                </p>
+                <p className="text-[8px] text-gray-500 uppercase tracking-wider mt-0.5">
+                  Player Profile
+                </p>
+              </div>
+            </div>
+            <span className="text-[8px] font-black uppercase tracking-widest text-orange-500/70">
+              VERIFIED
+            </span>
+          </div>
+          <div className="p-3.5 space-y-2.5">
+            <div className="flex items-center justify-between gap-3 bg-[#111a24] border border-gray-800/80 rounded-xl px-3.5 py-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-7 h-7 rounded-md bg-orange-500/10 border border-orange-500/20 flex items-center justify-center">
+                  <span className="text-[11px] text-orange-400 font-black">ID</span>
+                </div>
+                <div>
+                  <p className="text-[8px] text-gray-500 uppercase font-black tracking-widest">
+                    In-Game Name
+                  </p>
+                  <p className="text-[9px] text-gray-600 uppercase tracking-wide mt-0.5">
+                    IGN
+                  </p>
+                </div>
+              </div>
+              {isEditingProfile ? (
+                <input
+                  value={tempFfIgn}
+                  onChange={(e) => setTempFfIgn(e.target.value)}
+                  className="bg-black/80 border border-orange-600/70 rounded-lg px-3 py-2 text-xs font-bold text-white w-40 outline-none focus:border-orange-400"
+                />
+              ) : (
+                <span className="font-black text-[14px] text-white tracking-wide truncate max-w-[175px]">
+                  {ffIgn || "Not Added"}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center justify-between gap-3 bg-[#111a24] border border-gray-800/80 rounded-xl px-3.5 py-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-7 h-7 rounded-md bg-orange-500/10 border border-orange-500/20 flex items-center justify-center">
+                  <span className="text-[10px] text-orange-400 font-black">#</span>
+                </div>
+                <div>
+                  <p className="text-[8px] text-gray-500 uppercase font-black tracking-widest">
+                    Player UID
+                  </p>
+                  <p className="text-[9px] text-gray-600 uppercase tracking-wide mt-0.5">
+                    Unique ID
+                  </p>
+                </div>
+              </div>
+              {isEditingProfile ? (
+                <input
+                  value={tempFfUid}
+                  onChange={(e) => setTempFfUid(e.target.value)}
+                  className="bg-black/80 border border-orange-600/70 rounded-lg px-3 py-2 text-xs font-bold text-orange-300 w-40 outline-none focus:border-orange-400"
+                />
+              ) : (
+                <span className="font-black text-[13px] text-orange-300 font-mono tracking-wider truncate max-w-[175px]">
+                  {ffUid || "Not Added"}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
-
-      {isEditingProfile ? (
-        <input
-          value={tempBgmiIgn}
-          onChange={(e) => setTempBgmiIgn(e.target.value)}
-          className="bg-black/80 border border-cyan-600/70 rounded-lg px-3 py-2 text-xs font-bold text-white w-40 outline-none focus:border-cyan-400"
-        />
-      ) : (
-        <span className="font-black text-[14px] text-white tracking-wide truncate max-w-[175px]">
-          {bgmiIgn || "Not Added"}
-        </span>
-      )}
-    </div>
-
-    {/* UID */}
-    <div className="flex items-center justify-between gap-3 bg-[#111a24] border border-gray-800/80 rounded-xl px-3.5 py-3">
-      <div className="flex items-center gap-2.5 min-w-0">
-        <div className="w-7 h-7 rounded-md bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center">
-          <span className="text-[10px] text-cyan-400 font-black">#</span>
-        </div>
-
-        <div>
-          <p className="text-[8px] text-gray-500 uppercase font-black tracking-widest">
-            Player UID
-          </p>
-          <p className="text-[9px] text-gray-600 uppercase tracking-wide mt-0.5">
-            Unique ID
-          </p>
-        </div>
-      </div>
-
-      {isEditingProfile ? (
-        <input
-          value={tempBgmiUid}
-          onChange={(e) => setTempBgmiUid(e.target.value)}
-          className="bg-black/80 border border-cyan-600/70 rounded-lg px-3 py-2 text-xs font-bold text-cyan-300 w-40 outline-none focus:border-cyan-400"
-        />
-      ) : (
-        <span className="font-black text-[13px] text-cyan-300 font-mono tracking-wider truncate max-w-[175px]">
-          {bgmiUid || "Not Added"}
-        </span>
-      )}
-    </div>
-
-  </div>
-</div>
-
-
-{/* Free Fire Profile */}
-<div className="rounded-2xl border border-orange-900/50 bg-[#0d141d]/95 overflow-hidden shadow-[0_8px_25px_rgba(0,0,0,0.25)]">
-
-  {/* Card Header */}
-  <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-orange-950/40 via-orange-950/15 to-transparent border-b border-orange-900/40">
-    <div className="flex items-center gap-2.5">
-      <div className="w-8 h-8 rounded-lg bg-orange-500/10 border border-orange-500/25 flex items-center justify-center">
-        <span className="text-base">🔥</span>
-      </div>
-
-      <div>
-        <p className="text-[11px] font-black text-orange-300 uppercase tracking-[0.14em]">
-          FREE FIRE
-        </p>
-        <p className="text-[8px] text-gray-500 uppercase tracking-wider mt-0.5">
-          Player Profile
-        </p>
-      </div>
-    </div>
-
-    <span className="text-[8px] font-black uppercase tracking-widest text-orange-500/70">
-      VERIFIED
-    </span>
-  </div>
-
-  {/* Details */}
-  <div className="p-3.5 space-y-2.5">
-
-    {/* IGN */}
-    <div className="flex items-center justify-between gap-3 bg-[#111a24] border border-gray-800/80 rounded-xl px-3.5 py-3">
-      <div className="flex items-center gap-2.5 min-w-0">
-        <div className="w-7 h-7 rounded-md bg-orange-500/10 border border-orange-500/20 flex items-center justify-center">
-          <span className="text-[11px] text-orange-400 font-black">ID</span>
-        </div>
-
-        <div>
-          <p className="text-[8px] text-gray-500 uppercase font-black tracking-widest">
-            In-Game Name
-          </p>
-          <p className="text-[9px] text-gray-600 uppercase tracking-wide mt-0.5">
-            IGN
-          </p>
-        </div>
-      </div>
-
-      {isEditingProfile ? (
-        <input
-          value={tempFfIgn}
-          onChange={(e) => setTempFfIgn(e.target.value)}
-          className="bg-black/80 border border-orange-600/70 rounded-lg px-3 py-2 text-xs font-bold text-white w-40 outline-none focus:border-orange-400"
-        />
-      ) : (
-        <span className="font-black text-[14px] text-white tracking-wide truncate max-w-[175px]">
-          {ffIgn || "Not Added"}
-        </span>
-      )}
-    </div>
-
-    {/* UID */}
-    <div className="flex items-center justify-between gap-3 bg-[#111a24] border border-gray-800/80 rounded-xl px-3.5 py-3">
-      <div className="flex items-center gap-2.5 min-w-0">
-        <div className="w-7 h-7 rounded-md bg-orange-500/10 border border-orange-500/20 flex items-center justify-center">
-          <span className="text-[10px] text-orange-400 font-black">#</span>
-        </div>
-
-        <div>
-          <p className="text-[8px] text-gray-500 uppercase font-black tracking-widest">
-            Player UID
-          </p>
-          <p className="text-[9px] text-gray-600 uppercase tracking-wide mt-0.5">
-            Unique ID
-          </p>
-        </div>
-      </div>
-
-      {isEditingProfile ? (
-        <input
-          value={tempFfUid}
-          onChange={(e) => setTempFfUid(e.target.value)}
-          className="bg-black/80 border border-orange-600/70 rounded-lg px-3 py-2 text-xs font-bold text-orange-300 w-40 outline-none focus:border-orange-400"
-        />
-      ) : (
-        <span className="font-black text-[13px] text-orange-300 font-mono tracking-wider truncate max-w-[175px]">
-          {ffUid || "Not Added"}
-        </span>
-      )}
-    </div>
-
-  </div>
-</div>
 
         {/* Badges */}
         <div
@@ -288,8 +259,12 @@ export default function ProfileTab({
           className="rounded-xl border border-yellow-800/40 bg-gradient-to-br from-yellow-950/15 via-black/40 to-yellow-950/10 p-3.5 cursor-pointer"
         >
           <div className="flex justify-between items-center mb-3">
-            <span className="text-[10px] font-black text-yellow-400 uppercase tracking-wider">🏆 Badges</span>
-            <span className="text-[9px] text-gray-500 font-mono">{unlockedBadges.length} / {totalBadges} Earned</span>
+            <span className="text-[10px] font-black text-yellow-400 uppercase tracking-wider">
+              🏆 Badges
+            </span>
+            <span className="text-[9px] text-gray-500 font-mono">
+              {unlockedBadges.length} / {totalBadges} Earned
+            </span>
           </div>
           <div className="flex flex-wrap gap-2">
             {unlockedBadges.length > 0 ? (
@@ -304,15 +279,58 @@ export default function ProfileTab({
                 </div>
               ))
             ) : (
-              <span className="text-[10px] text-gray-600 italic">No badges unlocked yet.</span>
+              <span className="text-[10px] text-gray-600 italic">
+                No badges unlocked yet.
+              </span>
             )}
           </div>
         </div>
 
+        {/* ═══════════════ NEW: Crowns + Wins Stats ═══════════════ */}
+        <div className="rounded-xl border border-[#3D2F14] bg-gradient-to-br from-[#241D0F]/80 via-black/40 to-[#241D0F]/40 p-3.5">
+          <p className="text-[10px] font-black text-[#E8B04B] uppercase tracking-wider mb-3">
+            👑 Career Stats
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {/* Total Crowns */}
+            <div className="rounded-lg bg-black/50 border border-[#3D2F14] p-3 text-center">
+              <p className="text-lg font-black text-[#E8B04B] leading-none">
+                {crownBalance}
+              </p>
+              <p className="text-[8px] text-gray-500 uppercase font-bold mt-1.5 tracking-wider">
+                Total Crowns
+              </p>
+            </div>
+
+            {/* Current Plan */}
+<div className="rounded-lg bg-black/50 border border-purple-900/50 p-3 text-center">
+  <p className="text-sm font-black text-purple-300 leading-none capitalize">
+    {currentPlan || "Free"}
+  </p>
+  <p className="text-[8px] text-gray-500 uppercase font-bold mt-1.5 tracking-wider">
+    Plan
+  </p>
+</div>
+
+            {/* Matches */}
+            <div className="rounded-lg bg-black/50 border border-cyan-900/50 p-3 text-center">
+              <p className="text-lg font-black text-cyan-300 leading-none">
+                {totalMatches}
+              </p>
+              <p className="text-[8px] text-gray-500 uppercase font-bold mt-1.5 tracking-wider">
+                Matches
+              </p>
+            </div>
+          </div>
+        </div>
+        {/* ═══════════════════════════════════════════════════════════ */}
+
         {/* Social Bio */}
         <div className="rounded-xl border border-gray-800/80 bg-black/30 overflow-hidden">
           <div className="flex justify-between items-center px-3.5 py-2.5 border-b border-gray-800/70">
-            <span className="text-[9px] text-gray-500 uppercase font-bold tracking-wider">Social Bio</span>
+            <span className="text-[9px] text-gray-500 uppercase font-bold tracking-wider">
+              Social Bio
+            </span>
             <button
               onClick={isEditingBio ? onSaveBio : onEditBio}
               className="text-[9px] text-cyan-400 font-black uppercase"
@@ -328,7 +346,9 @@ export default function ProfileTab({
                   onChange={(e) => setTempBio(e.target.value)}
                   className="w-full bg-black/80 border border-cyan-600/60 rounded-lg p-2.5 text-xs text-white h-20 resize-none outline-none focus:border-cyan-400"
                 />
-                {bioError && <p className="text-[9px] text-red-500 font-bold mt-1.5">{bioError}</p>}
+                {bioError && (
+                  <p className="text-[9px] text-red-500 font-bold mt-1.5">{bioError}</p>
+                )}
               </>
             ) : (
               <p className="text-[11px] text-gray-300 italic bg-black/30 p-3 rounded-lg border border-gray-900/80 leading-relaxed">
@@ -341,7 +361,9 @@ export default function ProfileTab({
         {/* XP Progress */}
         <div className="rounded-xl border border-gray-800/80 bg-black/35 p-3.5 space-y-3">
           <div className="flex justify-between items-center">
-            <span className="text-[9px] text-gray-500 uppercase font-bold tracking-wider">XP Progress</span>
+            <span className="text-[9px] text-gray-500 uppercase font-bold tracking-wider">
+              XP Progress
+            </span>
             <span className="text-[10px] text-cyan-300 font-bold">
               {matchesTowardNext} / {matchesNeededForNext} Matches
             </span>
@@ -353,8 +375,12 @@ export default function ProfileTab({
             />
           </div>
           <div className="flex justify-between items-center pt-1">
-            <span className="text-[10px] text-cyan-400 font-bold">🛡️ Protection Points</span>
-            <span className="text-[10px] font-black text-yellow-400">{protectionPoints}</span>
+            <span className="text-[10px] text-cyan-400 font-bold">
+              🛡️ Protection Points
+            </span>
+            <span className="text-[10px] font-black text-yellow-400">
+              {protectionPoints}
+            </span>
           </div>
           <div className="grid grid-cols-2 gap-2 pt-1">
             <button

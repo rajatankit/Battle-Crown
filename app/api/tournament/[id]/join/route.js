@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../../lib/prisma";
-import { getVerifiedUid } from "../../../../lib/auth";
-import { logCortexError } from "../../../../lib/cortex/errorLogger";
+import { prisma } from "@/app/lib/prisma";
+import { getVerifiedUid } from "@/app/lib/auth";
+import { logCortexError } from "@/app/lib/cortex/errorLogger";
 
 export async function POST(req, { params }) {
   try {
-    // Next.js 15+ / Turbopack mein params Promise ho sakta hai
     const resolvedParams = await Promise.resolve(params);
     const idParam = resolvedParams?.id;
 
@@ -16,7 +15,7 @@ export async function POST(req, { params }) {
       );
     }
 
-    // 1. Auth — Firebase token se uid
+    // 1. Auth
     const uid = await getVerifiedUid(req);
     if (!uid) {
       return NextResponse.json(
@@ -26,7 +25,7 @@ export async function POST(req, { params }) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const { whatsapp, ign, uid: gameUid } = body;
+    const { ign, uid: gameUid } = body;
 
     // 2. User lookup
     const user = await prisma.user.findUnique({ where: { uid } });
@@ -37,27 +36,25 @@ export async function POST(req, { params }) {
       );
     }
 
-    const email = user.email;
+    if (user.banned) {
+      return NextResponse.json(
+        { success: false, message: "Account is banned" },
+        { status: 403 }
+      );
+    }
 
-    // 3. Tournament resolve — number id YA firestoreId dono support
+    // 3. Tournament resolve — numeric id YA firestoreId dono support
     let tournament = null;
-
     const numericId = parseInt(idParam, 10);
 
     if (!isNaN(numericId) && String(numericId) === String(idParam).trim()) {
-      // Pure number hai
-      tournament = await prisma.tournament.findUnique({
-        where: { id: numericId },
-      });
+      tournament = await prisma.tournament.findUnique({ where: { id: numericId } });
     }
-
     if (!tournament) {
-      // Firestore ID se try karo
       tournament = await prisma.tournament.findUnique({
         where: { firestoreId: String(idParam) },
       });
     }
-
     if (!tournament) {
       return NextResponse.json(
         { success: false, message: "Tournament not found" },
@@ -65,7 +62,7 @@ export async function POST(req, { params }) {
       );
     }
 
-    const tournamentId = tournament.id; // Ab hamesha valid Prisma id
+    const tournamentId = tournament.id;
 
     // 4. Status & slots check
     if (tournament.status !== "upcoming") {
@@ -82,81 +79,19 @@ export async function POST(req, { params }) {
       );
     }
 
-    // 5. Already joined (sirf PAID)
-    // ⚠️ TEMPORARILY DISABLED FOR TESTING — RE-ENABLE BEFORE GOING LIVE!
-    // const alreadyJoined = await prisma.entryPayment.findFirst({
-    //   where: {
-    //     userId: user.id,
-    //     tournamentId,
-    //     status: "PAID",
-    //   },
-    // });
+    // 5. Already joined check
+    //const alreadyJoined = await prisma.matchHistory.findFirst({
+   //   where: { userId: user.id, tournamentId },
+   // });
 
-    // if (alreadyJoined) {
-    //   return NextResponse.json(
-    //     { success: false, message: "Already joined this tournament" },
-    //     { status: 400 }
-    //   );
-    // }
+   // if (alreadyJoined) {
+  //    return NextResponse.json(
+   //     { success: false, message: "Already joined this tournament" },
+   //     { status: 400 }
+   //   );
+   // }
 
-    const amount = parseFloat(tournament.entryFee || "0");
-    if (!amount || amount <= 0) {
-      return NextResponse.json(
-        { success: false, message: "Invalid entry fee" },
-        { status: 400 }
-      );
-    }
-
-    const appId = process.env.CASHFREE_APP_ID;
-    const secretKey = process.env.CASHFREE_SECRET_KEY;
-
-    if (!appId || !secretKey) {
-      return NextResponse.json(
-        { success: false, message: "Payment gateway not configured" },
-        { status: 500 }
-      );
-    }
-
-    // orderId format — webhook ke saath match kare
-    const orderId = "bc_" + String(tournamentId) + "_" + String(user.id) + "_" + Date.now();
-const description = "Tournament Entry Fee - " + tournament.title + " - " + tournament.id;
-
-const cashfreeRes = await fetch("https://sandbox.cashfree.com/pg/orders", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "x-client-id": appId,
-    "x-client-secret": secretKey,
-    "x-api-version": "2023-08-01",
-  },
-  body: JSON.stringify({
-    order_amount: amount,
-    order_currency: "INR",
-    order_id: orderId,
-    order_note: description,
-    customer_details: {
-      customer_id: email.replace(/[^a-zA-Z0-9_]/g, "_"),
-      customer_email: email,
-      customer_phone: whatsapp || "9999999999",
-    },
-    order_meta: {
-      return_url: "https://battle-crown.vercel.app/dashboard?order_id=" + orderId + "&tournament_id=" + tournamentId,
-    },
-  }),
-});
-
-    const data = await cashfreeRes.json();
-
-    if (!cashfreeRes.ok || !data.payment_session_id) {
-      console.error("Cashfree Error:", data);
-      await logCortexError("tournament/[id]/join", new Error(data.message || "Order failed"));
-      return NextResponse.json(
-        { success: false, message: data.message || "Order creation failed" },
-        { status: 500 }
-      );
-    }
-
-    // 7. Game profile update (optional)
+    // 6. Optional game profile update (transaction ke bahar — faster)
     if (ign || gameUid) {
       const game = (tournament.game || "").toLowerCase();
       const isFreeFire = game.includes("free");
@@ -168,29 +103,94 @@ const cashfreeRes = await fetch("https://sandbox.cashfree.com/pg/orders", {
       });
     }
 
+    // 7. ATOMIC: join + crown bonus (timeout badhaya)
+    const joinReward = tournament.joinRewardCrowns ?? 1;
 
-    // PENDING EntryPayment record banao
-await prisma.entryPayment.create({
-  data: {
-    userId: user.id,
-    tournamentId: tournamentId,
-    amount: amount,
-    paymentGatewayId: orderId,
-    status: "PENDING",
-    description: description,
-  },
-});
+    const result = await prisma.$transaction(
+      async (tx) => {
+        // Create match history
+        const match = await tx.matchHistory.create({
+          data: {
+            userId: user.id,
+            tournamentId,
+            game: tournament.game,
+            map: tournament.map,
+            mode: tournament.mode,
+            ign: ign || null,
+            uid: gameUid || null,
+            resultStatus: "UNVERIFIED",
+          },
+        });
 
-    // Note: EntryPayment record webhook banayega (source of truth)
+        // Increment joined count
+        const updatedTournament = await tx.tournament.update({
+          where: { id: tournamentId },
+          data: { joinedCount: { increment: 1 } },
+        });
+
+        let crownsEarned = 0;
+
+        if (joinReward > 0) {
+          // Ensure wallet exists
+          const wallet = await tx.crownWallet.upsert({
+            where: { userId: user.id },
+            create: { userId: user.id, balance: 0 },
+            update: {},
+          });
+
+          // Credit crowns
+          await tx.crownWallet.update({
+            where: { id: wallet.id },
+            data: { balance: { increment: joinReward } },
+          });
+
+          // Log transaction
+          await tx.crownTransaction.create({
+            data: {
+              walletId: wallet.id,
+              amount: joinReward,
+              type: "earned_match",
+              reason: "Join Bonus",
+              tournamentId,
+            },
+          });
+
+          // Log reward
+          await tx.crownReward.create({
+            data: {
+              userId: user.id,
+              tournamentId,
+              matchHistoryId: match.id,
+              amount: joinReward,
+              reason: "Join Bonus",
+            },
+          });
+
+          crownsEarned = joinReward;
+        }
+
+        return {
+          match,
+          tournament: updatedTournament,
+          crownsEarned,
+        };
+      },
+      {
+        maxWait: 10000, // 10s wait to acquire
+        timeout: 15000, // 15s to finish (pehle 5s tha → timeout aa raha tha)
+      }
+    );
 
     return NextResponse.json({
       success: true,
-      payment_session_id: data.payment_session_id,
-      order_id: orderId,
+      message: `Joined! +${result.crownsEarned} crowns`,
+      matchId: result.match.id,
+      joinedCount: result.tournament.joinedCount,
+      crownsEarned: result.crownsEarned,
     });
   } catch (error) {
     console.error("Join Tournament Error:", error);
-    await logCortexError("tournament/[id]/join", error);
+    await logCortexError("tournaments/[id]/join", error);
     return NextResponse.json(
       { success: false, message: error.message },
       { status: 500 }

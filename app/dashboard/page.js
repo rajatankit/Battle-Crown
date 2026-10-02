@@ -29,6 +29,10 @@ function DashboardContent() {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // ── Crown balance — fed into HomeTab's existing "👑 Crowns {crowns}" pill ──
+  const [crownBalance, setCrownBalance] = useState(0);
+  const [userPlanName, setUserPlanName] = useState("Free");
+
   // Small helper passed down to WalletTab/PaymentHistory so they can
   // authenticate their own fetches without duplicating Firebase logic.
   const getIdToken = async () => {
@@ -37,17 +41,13 @@ function DashboardContent() {
     return currentUser.getIdToken();
   };
 
-  // ─── Payment Verify Logic ───────────────────────────────────────────────
-  // After the Cashfree redirect comes back with ?order_id=..., poll our own
-  // status endpoint. The webhook is the actual source of truth — this is
-  // just UI feedback, so it retries a few times in case the webhook hasn't
-  // landed yet.
-  //
-  // IMPORTANT: this must wait for firebaseUser to be set. Cashfree's
-  // redirectTarget "_self" causes a full page reload, and auth.currentUser
-  // is null for a brief moment while Firebase rehydrates the session — if
-  // we call getIdToken() before that, it returns null and the request goes
-  // out unauthenticated (401). Gating on firebaseUser fixes that.
+  // ─── Payment Verify Logic (SUBSCRIPTIONS ONLY NOW) ─────────────────────
+  // Tournament join no longer goes through Cashfree — it's a free crown
+  // join now (see Step 4 confirm handler below). This order_id polling
+  // only matters if you redirect a subscription checkout back to
+  // /dashboard?order_id=... — if your subscription checkout redirects
+  // elsewhere (e.g. /pricing or /checkout), this effect is effectively
+  // unused and safe to leave as-is or remove later.
   useEffect(() => {
     const orderId = searchParams.get("order_id");
     if (orderId && firebaseUser) {
@@ -99,7 +99,7 @@ function DashboardContent() {
       data.status === "PAID"
     ) {
       alert(
-        "🎉 Tournament joined successfully!"
+        "🎉 Subscription activated successfully!"
       );
 
       window.history.replaceState(
@@ -153,7 +153,7 @@ function DashboardContent() {
     }
 
     alert(
-      "Payment is still being verified. Please check Match History after a few moments."
+      "Payment is still being verified. Please check again in a few moments."
     );
 
     window.history.replaceState(
@@ -179,6 +179,13 @@ function DashboardContent() {
 
   // ─── Bottom-nav tab switcher ──────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState("home"); // "home" | "battles" | "wallet" | "profile"
+  // Pricing page se aane pe URL se tab set karo
+useEffect(() => {
+  const tabFromUrl = searchParams.get("tab");
+  if (tabFromUrl && ["home", "battles", "wallet", "profile"].includes(tabFromUrl)) {
+    setActiveTab(tabFromUrl);
+  }
+}, [searchParams]);
 
   const [tournaments, setTournaments] = useState([]);
 
@@ -196,11 +203,18 @@ function DashboardContent() {
     setTournaments(list);
 
     // 👇 Postgres ki tournaments table ko Firestore ke saath sync rakhta hai
-    fetch("/api/tournaments/sync", {
+   (async () => {
+  try {
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) return;
+    await fetch("/api/tournaments/sync", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tournaments: list }),
-    }).catch((err) => console.error("Tournament sync failed:", err));
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch (err) {
+    console.error("Tournament sync failed:", err);
+  }
+})();
   });
   return () => unsubscribe();
 }, []);
@@ -346,6 +360,17 @@ function DashboardContent() {
       if (protData?.success) {
         setProtectionPoints(protData.protectionPoints ?? 0);
       }
+
+      // ── Crown balance ──────────────────────────────────────────────────
+      try {
+        const crownRes = await fetch("/api/user/crowns", {
+          headers: { Authorization: `Bearer ${idToken}` },
+        });
+        const crownData = await crownRes.json();
+        if (crownData.success) setCrownBalance(crownData.balance);
+      } catch (crownErr) {
+        console.error("Crown balance fetch error:", crownErr);
+      }
     } catch (err) {
       console.error("Profile refresh error:", err);
     }
@@ -456,7 +481,7 @@ function DashboardContent() {
       }
 
       if (data.success) {
-        alert("🎉 Match screenshot uploaded successfully! Your screenshot is now pending admin verification. Once verified, your reward will show up under Pending Rewards.");
+        alert("🎉 Match screenshot uploaded successfully! Your screenshot is now pending admin verification. Once verified, your crowns will show up in your balance.");
         setMatchScreenshot(null);
         setMatchHistory((prev) =>
           prev.map((m) =>
@@ -510,7 +535,7 @@ function DashboardContent() {
   const handleShareMatch = (match) => {
     const shareText =
       `I just joined ${match.tournamentName} (${match.mapName}) on Battle Crown! ` +
-      `Join in and compete for cash prizes. 🏆`;
+      `Join in and compete for crowns. 👑`;
 
     if (navigator.share) {
       navigator.share({ title: "Battle Crown Match", text: shareText, url: window.location.href }).catch(() => {});
@@ -607,6 +632,7 @@ function DashboardContent() {
           displayName={userName || "Player"}
           playerLevel={playerLevel}
           protectionPoints={protectionPoints}
+          crowns={crownBalance}
           bgmiIgn={bgmiIgn}
           bgmiUid={bgmiUid}
           ffIgn={ffIgn}
@@ -674,6 +700,9 @@ function DashboardContent() {
           tempFfUid={tempFfUid}
           setTempFfUid={setTempFfUid}
           onSaveProfile={handleSaveProfile}
+          crownBalance={crownBalance}
+          totalMatches={matchesPlayed}
+          currentPlan={userPlanName || "Free"}
           bio={bio}
           isEditingBio={isEditingBio}
           tempBio={tempBio}
@@ -762,7 +791,7 @@ function DashboardContent() {
                         <p className="text-gray-400">Map: {match.mapName}</p>
                       </div>
                       <div className="text-right">
-                        <span className="text-red-400 font-bold block text-[11px]">Paid: {match.entryPaid}</span>
+                        <span className="text-yellow-400 font-bold block text-[11px]">Entry: Free · +👑 Join Bonus</span>
                         <span className="text-[10px] text-gray-400 block">{getTimeAgo(match.joinTime)}</span>
                       </div>
                     </div>
@@ -826,9 +855,9 @@ function DashboardContent() {
               <div>
                 <p className="font-bold text-yellow-400 mb-1">2. Tournament Entry</p>
                 <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
-                  <li>Entry fees are non-refundable once the tournament starts.</li>
+                  <li>All tournaments are free to join — no entry fee, ever.</li>
                   <li>Joining a tournament confirms acceptance of all Battle Crown rules.</li>
-                  <li>Entry is confirmed only after successful payment and cannot be transferred to another player.</li>
+                  <li>Your slot is personal and cannot be transferred to another player.</li>
                 </ul>
               </div>
 
@@ -882,13 +911,14 @@ function DashboardContent() {
               </div>
 
               <div>
-                <p className="font-bold text-yellow-400 mb-1">7. Prize Distribution</p>
-                <p className="text-gray-400 mb-1">Prize calculation includes:</p>
+                <p className="font-bold text-yellow-400 mb-1">7. Crown Rewards</p>
+                <p className="text-gray-400 mb-1">Crown reward calculation includes:</p>
                 <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
-                  <li>Placement Prize</li>
-                  <li>Kill Rewards (if applicable)</li>
+                  <li>Join Bonus — credited instantly when you join</li>
+                  <li>Placement Reward (if applicable)</li>
+                  <li>Per-Kill Reward (if applicable)</li>
                 </ul>
-                <p className="text-gray-400 mt-1">Rewards are credited only after admin verification.</p>
+                <p className="text-gray-400 mt-1">Placement/kill crowns are credited only after admin verification.</p>
               </div>
 
               <div>
@@ -897,34 +927,23 @@ function DashboardContent() {
                 <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
                   <li>Review screenshots</li>
                   <li>Request additional proof</li>
-                  <li>Delay prize distribution if verification is pending</li>
+                  <li>Delay crown crediting if verification is pending</li>
                   <li>Reject suspicious results</li>
                 </ul>
                 <p className="text-gray-400 mt-1">Admin decisions are final.</p>
               </div>
 
               <div>
-                <p className="font-bold text-yellow-400 mb-1">9. Payment & Payout Rules</p>
+                <p className="font-bold text-yellow-400 mb-1">9. Crowns — No Cash Value</p>
                 <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
-                  <li>Entry fees are paid directly per tournament — Battle Crown does not hold a stored balance for you.</li>
-                  <li>Prize money is paid out via UPI after admin verification of your result.</li>
-                  <li>Battle Crown may require KYC verification before processing payouts as per applicable requirements.</li>
+                  <li>Crowns are a free in-platform reward, earned only by playing — they can never be purchased with real money.</li>
+                  <li>Crowns can be spent to unlock organizing your own tournament.</li>
+                  <li>Crowns have no cash redemption value and cannot be withdrawn or transferred.</li>
                 </ul>
               </div>
 
               <div>
-                <p className="font-bold text-yellow-400 mb-1">10. Refund Policy</p>
-                <p className="text-gray-400 mb-1">Refunds are provided only if:</p>
-                <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
-                  <li>Tournament is cancelled by Battle Crown.</li>
-                  <li>Server failure prevents match start.</li>
-                  <li>Failed or incomplete payments will be handled according to payment gateway status verification.</li>
-                </ul>
-                <p className="text-gray-400 mt-1">No refunds for: late joining, wrong UID, internet issues, device problems, or player absence.</p>
-              </div>
-
-              <div>
-                <p className="font-bold text-yellow-400 mb-1">11. Disqualification</p>
+                <p className="font-bold text-yellow-400 mb-1">10. Disqualification</p>
                 <p className="text-gray-400 mb-1">Players may be disqualified for:</p>
                 <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
                   <li>Fake screenshots, kills, or ranks</li>
@@ -935,10 +954,10 @@ function DashboardContent() {
               </div>
 
               <div>
-                <p className="font-bold text-yellow-400 mb-1">12. Account Suspension</p>
+                <p className="font-bold text-yellow-400 mb-1">11. Account Suspension</p>
                 <p className="text-gray-400 mb-1">Battle Crown may temporarily or permanently suspend accounts for:</p>
                 <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
-                  <li>Fraud or payment abuse</li>
+                  <li>Fraud or abuse of the crown system</li>
                   <li>Multiple accounts</li>
                   <li>Exploits or security violations</li>
                 </ul>
@@ -946,23 +965,23 @@ function DashboardContent() {
               </div>
 
               <div>
-                <p className="font-bold text-yellow-400 mb-1">13. Tournament Cancellation</p>
-                <p className="text-gray-400 mb-1">Battle Crown may cancel tournaments because of:</p>
+                <p className="font-bold text-yellow-400 mb-1">12. Tournament Cancellation</p>
+                <p className="text-gray-400 mb-1">Battle Crown (or a tournament organizer) may cancel tournaments because of:</p>
                 <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
                   <li>Server maintenance or technical issues</li>
                   <li>Low participation</li>
                   <li>Emergency situations</li>
                 </ul>
-                <p className="text-gray-400 mt-1">Refund policy applies where applicable.</p>
+                <p className="text-gray-400 mt-1">Since tournaments are free, no refund is applicable for players. If an organizer spent crowns to create the tournament, those crowns are not refunded on cancellation.</p>
               </div>
 
               <div>
-                <p className="font-bold text-yellow-400 mb-1">14. Network Responsibility</p>
+                <p className="font-bold text-yellow-400 mb-1">13. Network Responsibility</p>
                 <p className="text-gray-400">Battle Crown is not responsible for: internet disconnection, device overheating, power failure, game crashes, ping issues, or FPS drops.</p>
               </div>
 
               <div>
-                <p className="font-bold text-yellow-400 mb-1">15. Content Policy</p>
+                <p className="font-bold text-yellow-400 mb-1">14. Content Policy</p>
                 <p className="text-gray-400 mb-1">Players must not upload:</p>
                 <ul className="list-disc pl-4 space-y-0.5 text-gray-400">
                   <li>Edited screenshots or fake proof</li>
@@ -972,29 +991,29 @@ function DashboardContent() {
               </div>
 
               <div>
-                <p className="font-bold text-yellow-400 mb-1">16. Privacy</p>
-                <p className="text-gray-400 mb-1">Battle Crown stores: Email, Game UID, IGN, Match History, and Payment History.</p>
+                <p className="font-bold text-yellow-400 mb-1">15. Privacy</p>
+                <p className="text-gray-400 mb-1">Battle Crown stores: Email, Game UID, IGN, Match History, and Crown History.</p>
                 <p className="text-gray-400">Data is used only for tournament operations.</p>
                 <p className="text-gray-400">Battle Crown does not sell user personal information to third parties.</p>
               </div>
 
               <div>
-                <p className="font-bold text-yellow-400 mb-1">17. Limitation of Liability</p>
+                <p className="font-bold text-yellow-400 mb-1">16. Limitation of Liability</p>
                 <p className="text-gray-400">Battle Crown is not responsible for game server outages, publisher issues, device failures, internet failures, or force majeure events.</p>
               </div>
 
               <div>
-                <p className="font-bold text-yellow-400 mb-1">18. Changes to Rules</p>
+                <p className="font-bold text-yellow-400 mb-1">17. Changes to Rules</p>
                 <p className="text-gray-400">Battle Crown may update these rules without prior notice. Continued use of the platform means acceptance of updated rules.</p>
               </div>
 
               <div>
-                <p className="font-bold text-yellow-400 mb-1">19. Final Decision</p>
+                <p className="font-bold text-yellow-400 mb-1">18. Final Decision</p>
                 <p className="text-gray-400">All tournament-related decisions made by Battle Crown Admins are final and binding. Admin decisions are based on available evidence and verification results. Players may contact support for clarification regarding decisions.</p>
               </div>
 
               <div>
-                <p className="font-bold text-yellow-400 mb-1">20. Acceptance</p>
+                <p className="font-bold text-yellow-400 mb-1">19. Acceptance</p>
                 <p className="text-gray-400">By joining any Battle Crown tournament, you acknowledge that you have read, understood, and agreed to these Rules & Regulations.</p>
               </div>
 
@@ -1022,12 +1041,12 @@ function DashboardContent() {
         </div>
       )}
 
-      {/* ─── Step 2: Prize Pool Details ───────────────────────────────────────── */}
+      {/* ─── Step 2: Tournament Details ───────────────────────────────────────── */}
       {isDetailsModalOpen && activeMatch && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#0f141c] border border-cyan-500 p-6 max-w-lg w-full space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-gray-800 pb-2">
-              <h3 className="text-sm font-bold text-cyan-400 uppercase tracking-wide">// TOURNAMENT DETAILS & PRIZE POOL</h3>
+              <h3 className="text-sm font-bold text-cyan-400 uppercase tracking-wide">// TOURNAMENT DETAILS</h3>
               <button onClick={() => setIsDetailsModalOpen(false)} className="text-gray-400 hover:text-white text-xs cursor-pointer">✕</button>
             </div>
             <div className="bg-black/60 p-4 border border-gray-800 space-y-3 text-xs">
@@ -1044,17 +1063,30 @@ function DashboardContent() {
                 <span className="font-bold text-white">{activeMatch.map} ({activeMatch.mode})</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-400">Entry Fee:</span>
-                <span className="font-bold text-green-400">₹{activeMatch.entryFee}</span>
+                <span className="text-gray-400">Entry:</span>
+                <span className="font-bold text-green-400">
+                  Free{activeMatch.joinRewardCrowns ? ` · +${activeMatch.joinRewardCrowns} 👑` : ""}
+                </span>
               </div>
             </div>
             <div className="bg-cyan-950/30 p-3.5 border border-cyan-800/60 rounded space-y-2">
-              <h4 className="text-yellow-400 font-bold uppercase text-xs text-center">🏆 PRIZE POOL DISTRIBUTION (%) 🏆</h4>
+              <h4 className="text-yellow-400 font-bold uppercase text-xs text-center">👑 CROWN REWARDS 👑</h4>
               <div className="space-y-1 text-xs font-mono">
-                <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-yellow-400 font-bold">🥇 1st Place:</span><span className="text-cyan-300">20% of pool</span></div>
-                <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-gray-300 font-bold">🥈 2nd Place:</span><span className="text-cyan-300">10% of pool</span></div>
-                <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-gray-300 font-bold">🥉 3rd Place:</span><span className="text-cyan-300">5% of pool</span></div>
-                <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-red-400 font-bold">🎯 Per Kill Bounty:</span><span className="text-cyan-300">₹5/kill • Higher entry = Higher kill reward</span></div>
+                {activeMatch.firstPrizeCrowns > 0 && (
+                  <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-yellow-400 font-bold">🥇 1st Place:</span><span className="text-cyan-300">👑 {activeMatch.firstPrizeCrowns}</span></div>
+                )}
+                {activeMatch.secondPrizeCrowns > 0 && (
+                  <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-gray-300 font-bold">🥈 2nd Place:</span><span className="text-cyan-300">👑 {activeMatch.secondPrizeCrowns}</span></div>
+                )}
+                {activeMatch.thirdPrizeCrowns > 0 && (
+                  <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-gray-300 font-bold">🥉 3rd Place:</span><span className="text-cyan-300">👑 {activeMatch.thirdPrizeCrowns}</span></div>
+                )}
+                {activeMatch.killRewardCrowns > 0 && (
+                  <div className="flex justify-between bg-black/40 p-1.5 border border-gray-800"><span className="text-red-400 font-bold">🎯 Per Kill:</span><span className="text-cyan-300">👑 {activeMatch.killRewardCrowns}/kill</span></div>
+                )}
+                {!activeMatch.firstPrizeCrowns && !activeMatch.killRewardCrowns && (
+                  <p className="text-center text-gray-500 italic py-1">Join bonus only for this match.</p>
+                )}
               </div>
               <div className="mt-3 bg-yellow-950/20 border border-yellow-700/40 p-3 rounded text-center">
                 <p className="text-yellow-400 font-bold text-xs uppercase tracking-wider">⚔️ GOOD LUCK, WARRIOR! ⚔️</p>
@@ -1107,7 +1139,7 @@ function DashboardContent() {
             <h3 className="text-sm font-bold text-green-400 uppercase tracking-wide">// FINAL CONFIRMATION</h3>
             <div className="bg-green-950/30 p-3.5 border border-green-800/50 text-xs text-gray-300 space-y-2 text-left">
               <p>Tournament: <strong className="text-white">{activeMatch.title}</strong></p>
-              <p>Entry Fee: <strong className="text-green-400">₹{activeMatch.entryFee}</strong></p>
+              <p>Entry: <strong className="text-green-400">Free{activeMatch.joinRewardCrowns ? ` · +${activeMatch.joinRewardCrowns} 👑` : ""}</strong></p>
               <p>IGN & UID: <strong className="text-yellow-400">{playerIgnInput} ({playerUidInput})</strong></p>
             </div>
             <div className="flex justify-between items-center gap-3 pt-3 border-t border-gray-800">
@@ -1125,6 +1157,9 @@ function DashboardContent() {
                       return;
                     }
 
+                    // Free crown-join — no payment gateway involved anymore.
+                    // NOTE: confirm this path matches your actual join route
+                    // (singular "tournament" per your project structure).
                     const res = await fetch(`/api/tournament/${activeMatch.id}/join`, {
                       method: "POST",
                       headers: {
@@ -1132,7 +1167,6 @@ function DashboardContent() {
                         Authorization: `Bearer ${idToken}`,
                       },
                       body: JSON.stringify({
-                        whatsapp: playerWhatsapp,
                         ign: playerIgnInput,
                         uid: playerUidInput,
                       }),
@@ -1141,21 +1175,17 @@ function DashboardContent() {
                     const data = await res.json();
 
                     if (!data.success) {
-                      alert(data.message || "Failed to initiate payment");
+                      alert(data.message || "Failed to join tournament");
                       return;
                     }
 
-                    const cashfree = new window.Cashfree({
-                      mode: "sandbox",
-                    });
-
-                    cashfree.checkout({
-                      paymentSessionId: data.payment_session_id,
-                      redirectTarget: "_self",
-                    });
-
+                    alert(`🎉 Joined! +${data.crownsEarned || 0} 👑 crowns earned.`);
                     setIsConfirmModalOpen(false);
+                    setActiveMatch(null);
 
+                    if (firebaseUser) {
+                      await refreshUserProfile(firebaseUser.uid, firebaseUser.email, firebaseUser.displayName);
+                    }
                   } catch (error) {
                     console.error("Join Error:", error);
                     alert("Something went wrong while joining");
@@ -1165,7 +1195,7 @@ function DashboardContent() {
                 }}
                 className="px-5 py-2 bg-green-500 text-black font-black text-xs uppercase cursor-pointer hover:bg-green-400 disabled:opacity-60"
               >
-                {isSubmitting ? "PROCESSING..." : "CONFIRM & PROCEED ➤"}
+                {isSubmitting ? "JOINING..." : "CONFIRM & JOIN 👑"}
               </button>
             </div>
           </div>
@@ -1181,15 +1211,15 @@ function DashboardContent() {
               <button onClick={() => setIsAboutModalOpen(false)} className="text-gray-400 hover:text-white text-xs cursor-pointer">✕</button>
             </div>
             <div className="space-y-3 text-xs text-gray-300 leading-relaxed">
-              <p><strong>Battle Crown</strong> is a competitive online gaming tournament platform for skill-based custom room matches in BGMI and Free Fire.</p>
+              <p><strong>Battle Crown</strong> is a free competitive online gaming tournament platform for skill-based custom room matches in BGMI and Free Fire.</p>
               <div className="border-t border-gray-800 pt-3">
-                <span className="text-yellow-400 font-bold uppercase block mb-1">Prize Distribution:</span>
+                <span className="text-yellow-400 font-bold uppercase block mb-1">Crown Rewards:</span>
                 <ul className="list-disc pl-4 space-y-1 text-gray-400">
-                  <li>🥇 1st Place: 20% of total entry fees</li>
-                  <li>🥈 2nd Place: 10% of total entry fees</li>
-                  <li>🥉 3rd Place: 5% of total entry fees</li>
-                  <li>🎯 Per Kill Bounty: ₹5/kill • Higher entry = Higher kill reward</li>
+                  <li>👑 Join Bonus — every time you join a tournament</li>
+                  <li>🥇🥈🥉 Placement Rewards — set per tournament by the organizer</li>
+                  <li>🎯 Per-Kill Rewards — flat crowns per kill, set per tournament</li>
                 </ul>
+                <p className="text-gray-400 mt-2">Crowns can never be bought — only earned by playing. Spend them to organize your own tournaments.</p>
               </div>
             </div>
             <div className="flex justify-end pt-2">

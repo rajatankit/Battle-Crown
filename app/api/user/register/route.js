@@ -1,10 +1,10 @@
+// app/api/user/register/route.js
 import { NextResponse } from "next/server";
-import { prisma } from "../../../lib/prisma";
-import { adminAuth } from "../../../lib/firebase-admin";
+import { prisma } from "@/app/lib/prisma";
+import { adminAuth } from "@/app/lib/firebase-admin";
 
 async function getVerifiedUser(request) {
   const authHeader = request.headers.get("authorization") || "";
-
   const idToken = authHeader.startsWith("Bearer ")
     ? authHeader.slice(7).trim()
     : null;
@@ -13,10 +13,10 @@ async function getVerifiedUser(request) {
 
   try {
     const decoded = await adminAuth.verifyIdToken(idToken);
-
     return {
       uid: decoded.uid,
-      email: decoded.email || null,
+      email: decoded.email ? decoded.email.toLowerCase() : null,
+      emailVerified: decoded.email_verified === true,
     };
   } catch (error) {
     console.error("Token verification failed:", error.message);
@@ -26,47 +26,34 @@ async function getVerifiedUser(request) {
 
 export async function POST(request) {
   try {
-    // Firebase token verify
     const firebaseUser = await getVerifiedUser(request);
 
     if (!firebaseUser) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized: invalid or missing auth token",
-        },
+        { success: false, error: "Unauthorized: invalid or missing auth token" },
         { status: 401 }
       );
     }
 
     const body = await request.json().catch(() => ({}));
 
-    const email =
-      firebaseUser.email ||
-      body.email?.toString().trim().toLowerCase();
+    const email = (firebaseUser.email || body.email || "")
+      .toString()
+      .trim()
+      .toLowerCase();
 
-    const name =
-      body.name?.toString().trim() || "Player";
+    const name = body.name?.toString().trim().slice(0, 40) || "Player";
 
     if (!email) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "Email is required",
-        },
+        { success: false, error: "Email is required" },
         { status: 400 }
       );
     }
 
-    console.log("========== USER REGISTRATION ==========");
-    console.log("Firebase UID:", firebaseUser.uid);
-    console.log("Firebase Email:", email);
-
-    // Check whether this Firebase UID already exists
-    let existingUser = await prisma.user.findUnique({
-      where: {
-        uid: firebaseUser.uid,
-      },
+    // 1) UID se user already hai?
+    const existingUser = await prisma.user.findUnique({
+      where: { uid: firebaseUser.uid },
     });
 
     if (existingUser) {
@@ -77,21 +64,16 @@ export async function POST(request) {
       });
     }
 
-    // Check whether email already exists
+    // 2) Email se purana record hai?
     const existingEmailUser = await prisma.user.findUnique({
-      where: {
-        email,
-      },
+      where: { email },
     });
 
     if (existingEmailUser) {
-      // If old database record has no Firebase UID,
-      // safely connect it to this Firebase account.
-      if (!existingEmailUser.uid) {
+      // Sirf verified email wale ko hi purana record link karne do
+      if (!existingEmailUser.uid && firebaseUser.emailVerified) {
         const updatedUser = await prisma.user.update({
-          where: {
-            id: existingEmailUser.id,
-          },
+          where: { id: existingEmailUser.id },
           data: {
             uid: firebaseUser.uid,
             name: existingEmailUser.name || name,
@@ -106,52 +88,48 @@ export async function POST(request) {
       }
 
       return NextResponse.json(
-        {
-          success: false,
-          error: "An account with this email already exists",
-        },
+        { success: false, error: "An account with this email already exists" },
         { status: 409 }
       );
     }
 
-    // Create new database user
-    const newUser = await prisma.user.create({
-      data: {
-        uid: firebaseUser.uid,
-        email,
-        name,
-
-        // Explicit defaults for clarity
-        matchesPlayed: 0,
-        level: 1,
-        protectionPoints: 5,
-      },
-    });
-
-    console.log("Database user created successfully");
-    console.log("Database ID:", newUser.id);
-
-    return NextResponse.json(
-      {
-        success: true,
-        message: "User created successfully",
-        user: {
-          id: newUser.id,
-          uid: newUser.uid,
-          email: newUser.email,
-          name: newUser.name,
+    // 3) Naya user banao (double-call safe)
+    try {
+      const newUser = await prisma.user.create({
+        data: {
+          uid: firebaseUser.uid,
+          email,
+          name,
+          matchesPlayed: 0,
+          level: 1,
+          protectionPoints: 5,
         },
-      },
-      { status: 201 }
-    );
+      });
+
+      return NextResponse.json(
+        { success: true, message: "User created successfully", user: newUser },
+        { status: 201 }
+      );
+    } catch (e) {
+      // Do requests ek saath aayi to doosri yahan aayegi
+      if (e.code === "P2002") {
+        const user = await prisma.user.findUnique({
+          where: { uid: firebaseUser.uid },
+        });
+        if (user) {
+          return NextResponse.json({
+            success: true,
+            message: "User already exists",
+            user,
+          });
+        }
+      }
+      throw e;
+    }
   } catch (error) {
     console.error("USER REGISTRATION ERROR:", error);
-
     return NextResponse.json(
-      {
-        success: false,
-        error: error.message || "Failed to create user",
-      },
+      { success: false, error: "Failed to create user" },
       { status: 500 }
     );
   }

@@ -49,6 +49,7 @@ export async function GET(req) {
     const history = entries.map((e) => {
       const reward = e.match ? rewardMap[e.match.id] : null;
       return {
+        id: e.id,
         tournamentId: e.tournament.id,
         tournamentName: e.tournament.title,
         game: e.tournament.game,
