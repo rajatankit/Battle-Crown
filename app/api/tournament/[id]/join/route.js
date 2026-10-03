@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { getVerifiedUid } from "@/app/lib/auth";
 import { logCortexError } from "@/app/lib/cortex/errorLogger";
+import { adminDb } from "@/app/lib/firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 
 export async function POST(req, { params }) {
   try {
@@ -15,7 +17,6 @@ export async function POST(req, { params }) {
       );
     }
 
-    // 1. Auth
     const uid = await getVerifiedUid(req);
     if (!uid) {
       return NextResponse.json(
@@ -27,7 +28,6 @@ export async function POST(req, { params }) {
     const body = await req.json().catch(() => ({}));
     const { ign, uid: gameUid } = body;
 
-    // 2. User lookup
     const user = await prisma.user.findUnique({ where: { uid } });
     if (!user) {
       return NextResponse.json(
@@ -43,7 +43,7 @@ export async function POST(req, { params }) {
       );
     }
 
-    // 3. Tournament resolve — numeric id YA firestoreId dono support
+    // Tournament resolve — numeric id YA firestoreId dono support
     let tournament = null;
     const numericId = parseInt(idParam, 10);
 
@@ -64,8 +64,7 @@ export async function POST(req, { params }) {
 
     const tournamentId = tournament.id;
 
-    // 4. Status & slots check
-    if (tournament.status !== "upcoming") {
+    if ((tournament.status || "").toLowerCase() !== "upcoming") {
       return NextResponse.json(
         { success: false, message: "Registration closed" },
         { status: 400 }
@@ -79,19 +78,6 @@ export async function POST(req, { params }) {
       );
     }
 
-    // 5. Already joined check
-    const alreadyJoined = await prisma.matchHistory.findFirst({
-      where: { userId: user.id, tournamentId },
-    });
-
-    if (alreadyJoined) {
-      return NextResponse.json(
-        { success: false, message: "Already joined this tournament" },
-        { status: 400 }
-      );
-    }
-
-    // 6. Optional game profile update (transaction ke bahar — faster)
     if (ign || gameUid) {
       const game = (tournament.game || "").toLowerCase();
       const isFreeFire = game.includes("free");
@@ -103,91 +89,110 @@ export async function POST(req, { params }) {
       });
     }
 
-    // 7. ATOMIC: join + crown bonus (timeout badhaya)
     const joinReward = tournament.joinRewardCrowns ?? 1;
 
-    const result = await prisma.$transaction(
-      async (tx) => {
-        // Create match history
-        const match = await tx.matchHistory.create({
-          data: {
-            userId: user.id,
-            tournamentId,
-            game: tournament.game,
-            map: tournament.map,
-            mode: tournament.mode,
-            ign: ign || null,
-            uid: gameUid || null,
-            resultStatus: "UNVERIFIED",
-          },
-        });
-
-        // Increment joined count
-        const updatedTournament = await tx.tournament.update({
-          where: { id: tournamentId },
-          data: { joinedCount: { increment: 1 } },
-        });
-
-        let crownsEarned = 0;
-
-        if (joinReward > 0) {
-          // Ensure wallet exists
-          const wallet = await tx.crownWallet.upsert({
-            where: { userId: user.id },
-            create: { userId: user.id, balance: 0 },
-            update: {},
-          });
-
-          // Credit crowns
-          await tx.crownWallet.update({
-            where: { id: wallet.id },
-            data: { balance: { increment: joinReward } },
-          });
-
-          // Log transaction
-          await tx.crownTransaction.create({
-            data: {
-              walletId: wallet.id,
-              amount: joinReward,
-              type: "earned_match",
-              reason: "Join Bonus",
-              tournamentId,
-            },
-          });
-
-          // Log reward
-          await tx.crownReward.create({
+    try {
+      const result = await prisma.$transaction(
+        async (tx) => {
+          // DB-level unique constraint (@@unique([userId, tournamentId]) in
+          // schema) catches duplicate joins reliably, even under concurrent
+          // double-clicks — a findFirst() check before this point can race.
+          const match = await tx.matchHistory.create({
             data: {
               userId: user.id,
               tournamentId,
-              matchHistoryId: match.id,
-              amount: joinReward,
-              reason: "Join Bonus",
+              game: tournament.game,
+              map: tournament.map,
+              mode: tournament.mode,
+              ign: ign || null,
+              uid: gameUid || null,
+              resultStatus: "UNVERIFIED",
             },
           });
 
-          crownsEarned = joinReward;
+          const updatedTournament = await tx.tournament.update({
+            where: { id: tournamentId },
+            data: { joinedCount: { increment: 1 } },
+          });
+
+          let crownsEarned = 0;
+
+          if (joinReward > 0) {
+            const wallet = await tx.crownWallet.upsert({
+              where: { userId: user.id },
+              create: { userId: user.id, balance: 0 },
+              update: {},
+            });
+
+            await tx.crownWallet.update({
+              where: { id: wallet.id },
+              data: { balance: { increment: joinReward } },
+            });
+
+            await tx.crownTransaction.create({
+              data: {
+                walletId: wallet.id,
+                amount: joinReward,
+                type: "earned_match",
+                reason: "Join Bonus",
+                tournamentId,
+              },
+            });
+
+            await tx.crownReward.create({
+              data: {
+                userId: user.id,
+                tournamentId,
+                matchHistoryId: match.id,
+                amount: joinReward,
+                reason: "Join Bonus",
+              },
+            });
+
+            crownsEarned = joinReward;
+          }
+
+          return { match, tournament: updatedTournament, crownsEarned };
+        },
+        { maxWait: 10000, timeout: 15000 }
+      );
+
+      // ── Keep Firestore's joinedCount in sync ──────────────────────────
+      // The website's live tournament list reads from Firestore
+      // (onSnapshot), not Postgres directly — without this write-back,
+      // joinedCount on the UI never moves even though Postgres is correct.
+      if (tournament.firestoreId) {
+        try {
+          await adminDb
+            .collection("tournaments")
+            .doc(tournament.firestoreId)
+            .update({ joinedCount: FieldValue.increment(1) });
+        } catch (fsErr) {
+          // Don't fail the whole join if this write-back fails — log and
+          // move on, the next /api/tournaments/sync call will self-heal
+          // from Postgres... actually it won't (sync is Firestore -> PG
+          // only), so this is logged loudly for visibility.
+          console.error("Firestore joinedCount sync failed:", fsErr);
         }
-
-        return {
-          match,
-          tournament: updatedTournament,
-          crownsEarned,
-        };
-      },
-      {
-        maxWait: 10000, // 10s wait to acquire
-        timeout: 15000, // 15s to finish (pehle 5s tha → timeout aa raha tha)
       }
-    );
 
-    return NextResponse.json({
-      success: true,
-      message: `Joined! +${result.crownsEarned} crowns`,
-      matchId: result.match.id,
-      joinedCount: result.tournament.joinedCount,
-      crownsEarned: result.crownsEarned,
-    });
+      return NextResponse.json({
+        success: true,
+        message: `Joined! +${result.crownsEarned} crowns`,
+        matchId: result.match.id,
+        joinedCount: result.tournament.joinedCount,
+        crownsEarned: result.crownsEarned,
+      });
+    } catch (txError) {
+      // Prisma P2002 = unique constraint violation = genuinely already joined
+      if (txError?.code === "P2002") {
+        return NextResponse.json(
+          { success: false, message: "You have already joined this tournament." },
+          { status: 409 }
+        );
+      }
+      throw txError;
+    }
   } catch (error) {
     console.error("Join Tournament Error:", error);
     await logCortexError("tournaments/[id]/join", error);
