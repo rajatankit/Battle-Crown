@@ -40,12 +40,6 @@ export default function Footer() {
                   Privacy Policy
                 </a>
               </li>
-
-              <li>
-                <a href="/refund-policy" className="hover:text-cyan-400">
-                  Refund Policy
-                </a>
-              </li>
             </ul>
 
           </div>
@@ -58,7 +52,7 @@ export default function Footer() {
             </h3>
 
             <p className="text-sm">
-              Contact us for tournament or payment related queries.
+              Contact us for tournament related queries.
             </p>
 
             <a 
