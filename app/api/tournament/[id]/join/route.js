@@ -80,16 +80,16 @@ export async function POST(req, { params }) {
     }
 
     // 5. Already joined check
-    //const alreadyJoined = await prisma.matchHistory.findFirst({
-   //   where: { userId: user.id, tournamentId },
-   // });
+    const alreadyJoined = await prisma.matchHistory.findFirst({
+      where: { userId: user.id, tournamentId },
+    });
 
-   // if (alreadyJoined) {
-  //    return NextResponse.json(
-   //     { success: false, message: "Already joined this tournament" },
-   //     { status: 400 }
-   //   );
-   // }
+    if (alreadyJoined) {
+      return NextResponse.json(
+        { success: false, message: "Already joined this tournament" },
+        { status: 400 }
+      );
+    }
 
     // 6. Optional game profile update (transaction ke bahar — faster)
     if (ign || gameUid) {
