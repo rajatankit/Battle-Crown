@@ -9,11 +9,9 @@ export default function PrivacyPolicy() {
 
         <div className="space-y-6 text-sm leading-relaxed whitespace-pre-line">
 
-          {`BATTLE CROWN — PRIVACY POLICY
+          {`Effective Date: [update to your launch date]
 
-Effective Date: 15 August 2026
-
-Welcome to Battle Crown ("we", "our", "us"). Battle Crown is an online skill-based esports tournament platform that allows users to participate in gaming competitions, manage tournament entries, track match performance, and receive rewards.
+Welcome to Battle Crown ("we", "our", "us"). Battle Crown is a free, skill-based esports tournament platform that allows users to participate in gaming competitions, track match performance, and earn Crowns, an in-platform reward currency.
 
 This Privacy Policy explains how we collect, use, protect, and manage your information when you use the Battle Crown platform.
 
@@ -43,15 +41,14 @@ To provide tournament services, we may collect:
 - Match results
 - Kill count and ranking details
 - Uploaded match screenshots or proof
+- Crown balance and Crown reward history
 
-1.3 Wallet & Payment Information
+1.3 Subscription & Payment Information
 
-For deposits, winnings, and withdrawals, we may collect:
+If you purchase an optional organizer subscription, we may collect:
 
 - Transaction details
 - Payment status
-- Wallet balance information
-- Withdrawal details
 - Required verification information
 
 Payment information is processed through authorized third-party payment providers. Battle Crown does not store complete card, UPI, or banking credentials.
@@ -75,8 +72,8 @@ Battle Crown uses collected information for:
 
 - Creating and managing user accounts
 - Allowing users to join tournaments
-- Processing payments and withdrawals
-- Verifying match results
+- Verifying match results and crediting Crown rewards
+- Processing optional subscription payments
 - Preventing fraud and cheating
 - Maintaining fair gameplay
 - Providing customer support
@@ -87,39 +84,21 @@ Battle Crown uses collected information for:
 
 3. Fair Play & Security Monitoring
 
-To maintain competitive integrity, Battle Crown may review:
-
-- Match submissions
-- Screenshots
-- Tournament activity
-- Account behaviour
-- Transaction patterns
-
-This information is used only for security, verification, and fair play enforcement.
+To maintain competitive integrity, Battle Crown may review match submissions, screenshots, tournament activity, and account behaviour. This information is used only for security, verification, and fair play enforcement.
 
 ---
 
 4. Notifications
 
-Battle Crown may send notifications related to:
-
-- Tournament reminders
-- Room ID and password availability
-- Match updates
-- Account activity
-- Important platform announcements
-
-Users may manage notification preferences through available settings.
+Battle Crown may send notifications related to tournament reminders, Room ID and password availability, match updates, account activity, and important platform announcements. Users may manage notification preferences through available settings.
 
 ---
 
 5. Data Sharing
 
-Battle Crown does not sell, rent, or trade user personal information.
+Battle Crown does not sell, rent, or trade user personal information. We may share limited information only when necessary:
 
-We may share limited information only when necessary:
-
-- With payment service providers for transaction processing
+- With payment service providers for subscription transaction processing
 - With service providers supporting platform operations
 - To comply with legal obligations
 - To prevent fraud, abuse, or security threats
@@ -128,98 +107,49 @@ We may share limited information only when necessary:
 
 6. Third-Party Services
 
-Battle Crown may use third-party services including:
-
-- Hosting providers
-- Database services
-- Authentication services
-- Payment gateways
-- Analytics or security tools
-
-These services may process information according to their own privacy policies.
+Battle Crown may use third-party services including hosting providers, database services, authentication services, payment gateways (for subscriptions), and analytics or security tools. These services may process information according to their own privacy policies.
 
 ---
 
 7. Data Security
 
-We use reasonable technical and organizational measures to protect user information, including:
-
-- Secure authentication systems
-- Access controls
-- Protected databases
-- Payment security mechanisms
-
-However, no online platform can guarantee complete security of information.
+We use reasonable technical and organizational measures to protect user information, including secure authentication systems, access controls, and protected databases. However, no online platform can guarantee complete security of information.
 
 ---
 
 8. User Responsibilities
 
-Users are responsible for:
-
-- Keeping account credentials confidential
-- Providing accurate information
-- Not sharing accounts with others
-- Reporting unauthorized account activity
-
-Battle Crown is not responsible for losses caused by user negligence.
+Users are responsible for keeping account credentials confidential, providing accurate information, not sharing accounts with others, and reporting unauthorized account activity. Battle Crown is not responsible for losses caused by user negligence.
 
 ---
 
 9. Data Retention
 
-We retain user information only for as long as necessary to:
-
-- Provide tournament services
-- Maintain transaction records
-- Resolve disputes
-- Meet legal and security requirements
-
-When information is no longer required, it may be deleted or anonymized.
+We retain user information only for as long as necessary to provide tournament services, maintain records, resolve disputes, and meet legal and security requirements. When information is no longer required, it may be deleted or anonymized.
 
 ---
 
 10. User Rights
 
-Users may request:
-
-- Access to their account information
-- Correction of incorrect information
-- Account deletion requests
-- Clarification regarding data usage
-
-Requests can be submitted through official Battle Crown support channels.
+Users may request access to their account information, correction of incorrect information, account deletion, or clarification regarding data usage. Requests can be submitted through official Battle Crown support channels.
 
 ---
 
 11. Children's Privacy
 
-Battle Crown does not knowingly collect information from users who are not eligible to use online gaming services under applicable laws.
-
-Users are responsible for ensuring that they meet the required age eligibility before using the platform.
+Battle Crown does not knowingly collect information from users who are not eligible to use online gaming services under applicable laws. Users are responsible for ensuring that they meet the required age eligibility before using the platform.
 
 ---
 
 12. Cookies & Similar Technologies
 
-The website may use cookies or similar technologies to:
-
-- Improve user experience
-- Maintain sessions
-- Improve security
-- Understand platform usage
-
-Users may manage cookie preferences through their browser settings.
+The website may use cookies or similar technologies to improve user experience, maintain sessions, improve security, and understand platform usage. Users may manage cookie preferences through their browser settings.
 
 ---
 
 13. Changes to Privacy Policy
 
-Battle Crown may update this Privacy Policy from time to time.
-
-Any changes will become effective when published on the platform.
-
-Continued use of Battle Crown after updates means acceptance of the revised Privacy Policy.
+Battle Crown may update this Privacy Policy from time to time. Any changes will become effective when published on the platform. Continued use of Battle Crown after updates means acceptance of the revised Privacy Policy.
 
 ---
 
@@ -231,9 +161,7 @@ For privacy-related questions or requests, users may contact Battle Crown throug
 
 Disclaimer
 
-Battle Crown is an independent esports tournament platform and is not affiliated with, endorsed by, or sponsored by Krafton, PUBG/BGMI, Garena, Free Fire, Google, Apple, or any game publisher.
-
-All game names, logos, and trademarks belong to their respective owners.
+Battle Crown is an independent esports tournament platform and is not affiliated with, endorsed by, or sponsored by Krafton, PUBG/BGMI, Garena, Free Fire, Google, Apple, or any game publisher. All game names, logos, and trademarks belong to their respective owners.
 
 ---
 

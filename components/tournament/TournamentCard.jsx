@@ -2,9 +2,10 @@
 
 // components/tournament/TournamentCard.jsx
 //
-// Replaces the old ₹-prize tournament card. Prizes render as crowns
-// (👑) instead of rupees, and "join" always shows a flat crown bonus
-// instead of an entry fee, since tournaments are free now.
+// FIX: dashboard/page.jsx's Firestore listener converts the `date` field
+// (Firestore Timestamp -> ISO string) but this card was reading
+// `startTime`, which the listener never sets — so the time always
+// showed blank/invalid. Now reads `date` to match.
 
 export default function TournamentCard({ tournament, onJoin, joining }) {
   const {
@@ -20,7 +21,7 @@ export default function TournamentCard({ tournament, onJoin, joining }) {
     thirdPrizeCrowns,
     killRewardCrowns,
     joinRewardCrowns,
-    startTime,
+    date, // ← was startTime
   } = tournament;
 
   const slotsLeft = Math.max(0, maxSlots - joinedCount);
@@ -52,7 +53,7 @@ export default function TournamentCard({ tournament, onJoin, joining }) {
         <span>
           {joinedCount}/{maxSlots} slots
         </span>
-        {startTime && <span>{new Date(startTime).toLocaleString()}</span>}
+        {date && <span>{new Date(date).toLocaleString()}</span>}
       </div>
 
       <button

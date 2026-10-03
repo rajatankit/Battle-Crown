@@ -65,6 +65,9 @@ model Tournament {
   joinedCount          Int       @default(0)
   status               String    @default("upcoming") // upcoming | registration_closed | live | completed | cancelled
   createdAt            DateTime  @default(now())
+  isFeatured           Boolean   @default(false)
+  isSpecial            Boolean   @default(false)
+  sponsorPrizeAmount   Float?    @default(0)
   firstPrize           Float?    @default(0)
   secondPrize          Float?    @default(0)
   thirdPrize           Float?    @default(0)

@@ -10,230 +10,184 @@ export default function RulesPage() {
         <div className="bg-black/40 border border-gray-800 p-6 space-y-6 text-sm leading-relaxed">
 
           <section>
-            <h2 className="text-yellow-400 font-bold mb-2">
-              1. Player Eligibility
-            </h2>
+            <h2 className="text-yellow-400 font-bold mb-2">1. Eligibility</h2>
             <ul className="list-disc pl-5 space-y-1">
               <li>Participants must have a valid Battle Crown account.</li>
-              <li>Only one account per player is allowed.</li>
-              <li>Players must provide correct Game UID and IGN.</li>
-              <li>The player's in-game ID must be Level 20 or above to participate in any tournament.</li>
-              <li>In-game IDs below Level 20 are not eligible to participate.</li>
-              <li>Players must provide accurate and authentic information associated with their account.</li>
-              <li>Use of another person's account, fake identity, or misleading account information is strictly prohibited.</li>
-            </ul>
-          </section>
-
-
-          <section>
-            <h2 className="text-yellow-400 font-bold mb-2">
-              2. Tournament Participation
-            </h2>
-            <ul className="list-disc pl-5 space-y-1">
-              <li>Joining a tournament confirms acceptance of Battle Crown rules.</li>
-              <li>Entry fees are non-refundable except eligible cases.</li>
-              <li>Entry cannot be transferred to another player.</li>
-              <li>Players must review the tournament entry fee, prize pool, schedule, game format, and applicable rules before joining.</li>
-              <li>Tournament slots may be limited and joining may close once all available slots are filled.</li>
-              <li>A player's participation is confirmed only after successful tournament registration/joining.</li>
-              <li>Duplicate entries in the same tournament are not permitted unless specifically allowed by the tournament rules.</li>
-            </ul>
-          </section>
-
-
-          <section>
-            <h2 className="text-yellow-400 font-bold mb-2">
-              3. Room Details
-            </h2>
-            <ul className="list-disc pl-5 space-y-1">
-              <li>The Room ID and Password will be provided only to eligible players who have successfully joined the respective tournament.</li>
-              <li>Room details may be shared through Battle Crown's designated notification system at or before the scheduled time.</li>
-              <li>Sharing the Room ID or Password with non-participants is strictly prohibited.</li>
-              <li>Any unauthorized sharing or misuse of room details may result in disqualification and/or account action.</li>
-              <li>Players must join on time.</li>
-            </ul>
-          </section>
-
-
-          <section>
-            <h2 className="text-yellow-400 font-bold mb-2">
-              4. Fair Play Policy
-            </h2>
-
-            <ul className="list-disc pl-5 space-y-1">
-                <li>All players must participate fairly and follow the rules of the respective game and tournament.</li>
-              <li>Hacking, cheating, scripts, unauthorized third-party software, exploits, or any other unfair advantage are strictly prohibited.</li>
-              <li>Teaming, collusion, intentional match manipulation, or any attempt to influence tournament results unfairly is prohibited.</li>
-              <li>Violations may result in disqualification and account suspension.</li>
-              <li>Suspicious gameplay or activity may be reviewed by Battle Crown for verification.</li>
-            </ul>
-          </section>
-
-
-          <section>
-            <h2 className="text-yellow-400 font-bold mb-2">
-              5. Match Results & Verification
-            </h2>
-
-            <ul className="list-disc pl-5 space-y-1">
-              <li>Tournament results may be verified using available game data, screenshots, match records, and other relevant evidence.</li>
-              <li>Battle Crown may request additional evidence when necessary to verify a result.</li>
-              <li>False, edited, manipulated, or misleading screenshots/evidence may result in rejection of the submitted result and appropriate account action.</li>
-              <li>Results will be considered final only after the required verification process has been completed.</li>
-            </ul>
-          </section>
-
-
-          <section>
-            <h2 className="text-yellow-400 font-bold mb-2">
-              6. Prizes & Rewards
-            </h2>
-
-            <ul className="list-disc pl-5 space-y-1">
-                <li>Prize distribution will be based on the published prize structure of the respective tournament.</li>
-              <li>Prizes will be awarded only to players whose results have been successfully verified.</li>
-              <li>In cases involving suspicious, fraudulent, or unverifiable results, the relevant prize may be placed on hold pending investigation.</li>
-              <li>Eligible rewards will be processed in accordance with Battle Crown's applicable policies and verification requirements.</li>
-            </ul>
-          </section>
-
-           <section>
-            <h2 className="text-yellow-400 font-bold mb-2">
-             7.  Cancellation & Refunds
-            </h2>
-
-            <ul className="list-disc pl-5 space-y-1">
-                <li>Tournament cancellation, postponement, or other exceptional circumstances will be handled in accordance with Battle Crown's applicable cancellation and refund policy.</li>
-              <li>Disqualification resulting from a player's violation of the rules may affect refund eligibility.</li>
-              <li>Where a refund is applicable, processing times may depend on the payment provider and banking/payment systems.</li>
-              <li>Players are advised to review the applicable Refund & Cancellation Policy before making any payment.</li>
-            </ul>
-          </section>
-
-
-          <section>
-            <h2 className="text-yellow-400 font-bold mb-2">
-              8.  Account Security 
-            </h2>
-
-            <ul className="list-disc pl-5 space-y-1">
-              <li>Players are responsible for maintaining the security of their Battle Crown account and associated credentials.</li>
-              <li>Players must not share their account credentials with any other person.</li>
-              <li>Fraudulent activity, unauthorized access attempts, account manipulation, or misuse of the platform may result in suspension or termination of the account.</li>
-              <li>Battle Crown may review relevant account and tournament activity when investigating suspected violations or fraudulent activity.</li>
-            </ul>
-          </section>
-
-
-           <section>
-            <h2 className="text-yellow-400 font-bold mb-2">
-              9.  Disqualification & Account Action
-            </h2>
-
-            <ul className="list-disc pl-5 space-y-1">
-              <li>Battle Crown reserves the right to disqualify a player who violates tournament rules.</li>
-              <li>Depending on the severity of the violation, Battle Crown may suspend or terminate the player's account.</li>
-              <li>Serious or repeated violations may result in additional restrictions on participation in future tournaments.</li>
-              <li>Any action taken will be based on the available evidence and applicable Battle Crown policies.</li>
-            </ul>
-          </section>
-
-
-
-
-          <section>
-            <h2 className="text-yellow-400 font-bold mb-2">
-              10. Wallet & Withdrawal Rules
-            </h2>
-
-            <ul className="list-disc pl-5 space-y-1">
-              <li>Winnings are added after match verification.</li>
-              <li>Withdrawal requires valid account details.</li>
-              <li>Suspicious activity may lead to review.</li>
-            </ul>
-          </section>
-
-
-           <section>
-            <h2 className="text-yellow-400 font-bold mb-2">
-              11.  Tournament Changes
-            </h2>
-
-            <ul className="list-disc pl-5 space-y-1">
-              <li>Battle Crown may make reasonable changes to tournament schedules, formats, rules, or other tournament details when required for operational, technical, security, or other legitimate reasons.</li>
-              <li>Where a significant change or cancellation occurs, players will be notified through the available communication channels where reasonably possible.</li>
-              <li>Any applicable refund or compensation will be handled according to the relevant Battle Crown policy.</li>
+              <li>Only one account per player is allowed. Multiple accounts are strictly prohibited.</li>
+              <li>Players must provide a valid Game UID and IGN. Incorrect details may lead to disqualification.</li>
             </ul>
           </section>
 
           <section>
-            <h2 className="text-yellow-400 font-bold mb-2">
-              12. Dispute Resolution
-            </h2>
-
+            <h2 className="text-yellow-400 font-bold mb-2">2. Tournament Entry</h2>
             <ul className="list-disc pl-5 space-y-1">
-              <li>Players should contact Battle Crown Support regarding any tournament-related issue or dispute.</li>
-              <li>Players may be required to provide relevant screenshots, transaction details, match information, or other evidence for investigation.</li>
-              <li>Battle Crown will review disputes based on the available evidence and applicable policies.</li>
+              <li>All tournaments are free to join — no entry fee, ever.</li>
+              <li>Joining a tournament confirms acceptance of all Battle Crown rules.</li>
+              <li>Your slot is personal and cannot be transferred to another player.</li>
             </ul>
           </section>
 
-
-
+          <section>
+            <h2 className="text-yellow-400 font-bold mb-2">3. Room Details</h2>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Room ID & Password will be shown approximately 10 minutes before match start.</li>
+              <li>Players are responsible for joining on time.</li>
+              <li>Battle Crown is not responsible for internet or device issues.</li>
+            </ul>
+          </section>
 
           <section>
-            <h2 className="text-yellow-400 font-bold mb-2">
-              13. Technical Issues
-            </h2>
-
-            <p>
-             Players are responsible for ensuring that they have a compatible device, supported game version, sufficient battery, and a stable internet connection before participating.
-             Issues caused by a player's personal device, internet connection, battery, or game installation may not automatically qualify for a refund or re-entry.
-             In the event of a platform-side technical issue, Battle Crown may investigate the issue and take appropriate action based on the circumstances.
-            </p>
+            <h2 className="text-yellow-400 font-bold mb-2">4. Match Start Rules</h2>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Players must join before the scheduled time. Late players may lose their slot.</li>
+              <li>Matches will start according to schedule — no rematch for late joining.</li>
+            </ul>
           </section>
-
-
-           <section>
-            <h2 className="text-yellow-400 font-bold mb-2">
-              14. Acceptance of Rules.
-            </h2>
-
-            <p>
-            By registering for or joining a Battle Crown tournament, the player confirms that they have read, understood, and agreed to comply with these Rules & Regulations and all other applicable Battle Crown policies.
-
-Failure to comply with these rules may result in disqualification, cancellation of rewards, suspension, or termination of the account, depending on the nature and severity of the violation.
-
-Battle Crown reserves the right to update these Rules & Regulations when necessary. Players are responsible for reviewing the latest version before participating in a tournament.
-            </p>
-          </section>
-
-
 
           <section>
-            <h2 className="text-yellow-400 font-bold mb-2">
-              9. Final Decision
-            </h2>
-
-            <p>
-              Battle Crown Admin decisions are based on available evidence
-              and verification results.
-            </p>
+            <h2 className="text-yellow-400 font-bold mb-2">5. Fair Play Policy</h2>
+            <p className="mb-1">The following are strictly prohibited:</p>
+            <ul className="list-disc pl-5 space-y-1 grid grid-cols-1 sm:grid-cols-2 gap-x-2">
+              <li>Hacks / Cheats</li>
+              <li>Mod APKs</li>
+              <li>ESP</li>
+              <li>Aim Assist</li>
+              <li>Wall Hack</li>
+              <li>Speed Hack</li>
+              <li>Third-party software</li>
+              <li>Unauthorized emulator usage (in mobile-only tournaments)</li>
+              <li>Teaming (Solo matches)</li>
+              <li>Account sharing</li>
+              <li>Intentional feeding</li>
+              <li>Match fixing</li>
+              <li>Exploiting game bugs</li>
+            </ul>
+            <p className="text-red-400 font-bold mt-2">Violation results in immediate disqualification.</p>
           </section>
 
+          <section>
+            <h2 className="text-yellow-400 font-bold mb-2">6. Result Submission</h2>
+            <p className="mb-1">Players must upload:</p>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Match Screenshot</li>
+              <li>Correct Kill Count</li>
+              <li>Rank</li>
+            </ul>
+            <p className="mt-1">False submissions may result in permanent suspension.</p>
+          </section>
+
+          <section>
+            <h2 className="text-yellow-400 font-bold mb-2">7. Crown Rewards</h2>
+            <p className="mb-1">Crown reward calculation includes:</p>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Join Bonus — credited instantly when you join</li>
+              <li>Placement Reward (if applicable)</li>
+              <li>Per-Kill Reward (if applicable)</li>
+            </ul>
+            <p className="mt-1">Placement and per-kill Crowns are credited only after admin verification.</p>
+          </section>
+
+          <section>
+            <h2 className="text-yellow-400 font-bold mb-2">8. Verification Process</h2>
+            <p className="mb-1">Battle Crown reserves the right to:</p>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Review screenshots</li>
+              <li>Request additional proof</li>
+              <li>Delay crown crediting if verification is pending</li>
+              <li>Reject suspicious results</li>
+            </ul>
+            <p className="mt-1">Admin decisions are final.</p>
+          </section>
+
+          <section>
+            <h2 className="text-yellow-400 font-bold mb-2">9. Crowns — No Cash Value</h2>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Crowns are a free in-platform reward, earned only by playing — they can never be purchased with real money.</li>
+              <li>Crowns can be spent to unlock organizing your own tournament.</li>
+              <li>Crowns have no cash redemption value and cannot be withdrawn or transferred.</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-yellow-400 font-bold mb-2">10. Disqualification</h2>
+            <p className="mb-1">Players may be disqualified for:</p>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Fake screenshots, kills, or ranks</li>
+              <li>Toxic behaviour or abusive language</li>
+              <li>Impersonation</li>
+              <li>Rule violations or cheating</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-yellow-400 font-bold mb-2">11. Account Suspension</h2>
+            <p className="mb-1">Battle Crown may temporarily or permanently suspend accounts for:</p>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Fraud or abuse of the crown system</li>
+              <li>Multiple accounts</li>
+              <li>Exploits or security violations</li>
+            </ul>
+            <p className="mt-1">Suspended accounts lose tournament eligibility.</p>
+          </section>
+
+          <section>
+            <h2 className="text-yellow-400 font-bold mb-2">12. Tournament Cancellation</h2>
+            <p className="mb-1">Battle Crown (or a tournament organizer) may cancel tournaments because of:</p>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Server maintenance or technical issues</li>
+              <li>Low participation</li>
+              <li>Emergency situations</li>
+            </ul>
+            <p className="mt-1">Since tournaments are free, no refund is applicable for players. If an organizer spent crowns to create the tournament, those crowns are not refunded on cancellation.</p>
+          </section>
+
+          <section>
+            <h2 className="text-yellow-400 font-bold mb-2">13. Network Responsibility</h2>
+            <p>Battle Crown is not responsible for: internet disconnection, device overheating, power failure, game crashes, ping issues, or FPS drops.</p>
+          </section>
+
+          <section>
+            <h2 className="text-yellow-400 font-bold mb-2">14. Content Policy</h2>
+            <p className="mb-1">Players must not upload:</p>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Edited screenshots or fake proof</li>
+              <li>Offensive or illegal content</li>
+            </ul>
+            <p className="mt-1">Such content results in immediate account action.</p>
+          </section>
+
+          <section>
+            <h2 className="text-yellow-400 font-bold mb-2">15. Privacy</h2>
+            <p className="mb-1">Battle Crown stores: Email, Game UID, IGN, Match History, and Crown History.</p>
+            <p>Data is used only for tournament operations. Battle Crown does not sell user personal information to third parties.</p>
+          </section>
+
+          <section>
+            <h2 className="text-yellow-400 font-bold mb-2">16. Limitation of Liability</h2>
+            <p>Battle Crown is not responsible for game server outages, publisher issues, device failures, internet failures, or force majeure events.</p>
+          </section>
+
+          <section>
+            <h2 className="text-yellow-400 font-bold mb-2">17. Changes to Rules</h2>
+            <p>Battle Crown may update these rules without prior notice. Continued use of the platform means acceptance of updated rules.</p>
+          </section>
+
+          <section>
+            <h2 className="text-yellow-400 font-bold mb-2">18. Final Decision</h2>
+            <p>All tournament-related decisions made by Battle Crown Admins are final and binding. Admin decisions are based on available evidence and verification results. Players may contact support for clarification regarding decisions.</p>
+          </section>
+
+          <section>
+            <h2 className="text-yellow-400 font-bold mb-2">19. Acceptance</h2>
+            <p>By joining any Battle Crown tournament, you acknowledge that you have read, understood, and agreed to these Rules & Regulations.</p>
+          </section>
 
           <section className="border-t border-gray-800 pt-4">
-            <h2 className="text-orange-400 font-bold mb-2">
-              ⚠️ Important Disclaimer
-            </h2>
-
+            <h2 className="text-orange-400 font-bold mb-2">⚠️ Important Disclaimer</h2>
             <p>
-              Battle Crown is an independent esports tournament platform and
-              is not affiliated with Krafton, PUBG/BGMI, Garena, Free Fire,
-              Google, Apple, or any game publisher.
+              Battle Crown is an independent esports tournament platform and is not affiliated with, endorsed by, or sponsored by Krafton, PUBG/BGMI, Garena, Free Fire, Google, Apple, or any game publisher. All game names, logos, and trademarks belong to their respective owners.
             </p>
           </section>
-
 
         </div>
 
