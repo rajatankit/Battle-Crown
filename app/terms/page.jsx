@@ -9,7 +9,7 @@ export default function TermsAndConditions() {
 
         <div className="space-y-6 text-sm leading-relaxed whitespace-pre-line">
 
-          {`Effective Date: [update to your launch date]
+          {`Effective Date: 3 october 2026
 
 Welcome to Battle Crown ("Platform", "we", "our", "us"). Battle Crown is a free, skill-based esports tournament platform where users compete in gaming competitions and earn Crowns, an in-platform reward currency.
 

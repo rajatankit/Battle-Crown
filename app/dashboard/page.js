@@ -708,6 +708,7 @@ useEffect(() => {
           tempBio={tempBio}
           setTempBio={setTempBio}
           bioError={bioError}
+          onLogout={handleLogout}
           onEditBio={() => {
             setTempBio(bio || "");
             setIsEditingBio(true);

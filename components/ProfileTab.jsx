@@ -44,6 +44,7 @@ export default function ProfileTab({
   crownBalance = 0,
  currentPlan = "Free",
   totalMatches = 0,
+  onLogout = () => {},
 }) {
   const progressPct = Math.min(
     (matchesTowardNext / Math.max(matchesNeededForNext, 1)) * 100,
@@ -407,6 +408,13 @@ export default function ProfileTab({
             </div>
           )}
         </div>
+        {/* Logout */}
+        <button
+          onClick={onLogout}
+          className="w-full py-2.5 rounded-lg border border-red-500/40 bg-red-950/30 text-red-400 text-[10px] uppercase font-black tracking-wide hover:bg-red-950/50 transition-colors"
+        >
+          Logout
+        </button>
       </div>
 
       <div className="h-6" />
