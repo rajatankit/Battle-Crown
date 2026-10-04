@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { auth } from "@/app/lib/firebase"; // path adjust karo
+import { auth } from "@/app/lib/firebase"; // apna path check karo
 import { onAuthStateChanged } from "firebase/auth";
 
 export default function AdminVerifyPage() {
@@ -9,80 +9,116 @@ export default function AdminVerifyPage() {
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
-  const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
 
-  // Wait for Firebase auth
+  // ── TEMPORARY: one-click fix for matches stuck on the old invalid
+  // resultStatus "Pending Verification". Remove this block (and the
+  // /api/admin/fix-stuck-matches route) once you've clicked it once.
+  const [fixing, setFixing] = useState(false);
+  const [fixResult, setFixResult] = useState("");
+
+  const handleFixStuckMatches = async () => {
+    setFixing(true);
+    setFixResult("");
+    try {
+      const headers = await authHeaders();
+      if (!headers) {
+        setFixResult("Please login as admin first.");
+        return;
+      }
+      const res = await fetch("/api/admin/fix-stuck-matches", {
+        method: "POST",
+        headers,
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setFixResult(data.error || "Fix failed.");
+        return;
+      }
+      setFixResult(data.message);
+      loadMatches(); // refresh list so fixed matches show up immediately
+    } catch (err) {
+      console.error("Fix stuck matches error:", err);
+      setFixResult(err?.message || "Fix failed.");
+    } finally {
+      setFixing(false);
+    }
+  };
+  // ── END TEMPORARY BLOCK ──────────────────────────────────────────
+
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      if (!u) setLoading(false);
-    });
+    const unsub = onAuthStateChanged(auth, () => setAuthReady(true));
     return () => unsub();
   }, []);
 
-  const getToken = async () => {
-    const current = auth.currentUser;
-    if (!current) return null;
-    return current.getIdToken();
+  const authHeaders = async () => {
+    const user = auth.currentUser;
+    if (!user) return null;
+    const token = await user.getIdToken();
+    return { Authorization: `Bearer ${token}` };
   };
 
   const loadMatches = async () => {
     setLoading(true);
     setErrorMsg("");
+
     try {
-      const token = await getToken();
-      if (!token) {
-        setErrorMsg("Please login with an admin account first.");
+      const headers = await authHeaders();
+      if (!headers) {
+        setErrorMsg("Please login as admin first.");
         setMatches([]);
         return;
       }
 
       const res = await fetch("/api/admin/pending-matches", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        method: "GET",
+        headers,
         cache: "no-store",
       });
 
       const data = await res.json();
-      const list = data.matches || data.data || (Array.isArray(data) ? data : []);
-      setMatches(list);
 
       if (!res.ok) {
-        setErrorMsg(data.error || data.message || "Failed to load pending matches");
+        setErrorMsg(data.error || "Failed to load pending matches");
+        setMatches([]);
+        return;
       }
+
+      const list = data.matches || data.data || (Array.isArray(data) ? data : []);
+      setMatches(list);
     } catch (err) {
-      setErrorMsg(err.message);
+      console.error("Load matches error:", err);
+      setErrorMsg(err?.message || "Failed to load pending matches");
+      setMatches([]);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (user) loadMatches();
-  }, [user]);
+    if (authReady) loadMatches();
+  }, [authReady]);
 
   const updateField = (matchId, field, value) => {
     setMatches((prev) =>
-      prev.map((m) => (m.id === matchId ? { ...m, [field]: value } : m))
+      prev.map((match) => (match.id === matchId ? { ...match, [field]: value } : match))
     );
   };
 
   const handleAction = async (match, action) => {
+    if (processingId === match.id) return;
     setProcessingId(match.id);
+
     try {
-      const token = await getToken();
-      if (!token) {
-        alert("Please login again.");
+      const headers = await authHeaders();
+      if (!headers) {
+        alert("Please login as admin first.");
         return;
       }
 
       const res = await fetch(`/api/admin/matches/${match.id}/verify`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json", ...headers },
         body: JSON.stringify({
           kills: Number(match.kills) || 0,
           placement: Number(match.rank) || 0,
@@ -92,100 +128,78 @@ export default function AdminVerifyPage() {
 
       const data = await res.json();
 
+      if (!res.ok) {
+        alert(data.error || "Something went wrong");
+        return;
+      }
+
       if (data.success) {
-        setMatches((prev) => prev.filter((m) => m.id !== match.id));
-        alert(data.message);
+        setMatches((prev) => prev.filter((item) => item.id !== match.id));
+        alert(data.message || `Match ${action.toLowerCase()}d successfully`);
       } else {
         alert(data.error || "Something went wrong");
       }
     } catch (err) {
-      alert(err.message);
+      console.error("Verify match error:", err);
+      alert(err?.message || "Failed to process match");
     } finally {
       setProcessingId(null);
     }
   };
 
-  if (!user && !loading) {
-    return (
-      <div style={{ maxWidth: 500, margin: "80px auto", padding: 20, textAlign: "center" }}>
-        <h1>Admin — Verify Matches</h1>
-        <p style={{ color: "#666", marginTop: 12 }}>
-          Please{" "}
-          <a href="/login" style={{ color: "#06b6d4" }}>
-            login
-          </a>{" "}
-          with an admin account.
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <div style={{ maxWidth: 900, margin: "40px auto", padding: 20, fontFamily: "sans-serif" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-        <h1 style={{ fontSize: 24 }}>Admin — Verify Matches</h1>
+    <div style={{ maxWidth: 900, margin: "40px auto", padding: 20, fontFamily: "Arial, sans-serif" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, gap: 15 }}>
+        <h1 style={{ fontSize: 24, margin: 0 }}>Admin — Verify Matches</h1>
         <button
           onClick={loadMatches}
-          style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #ccc", cursor: "pointer" }}
+          disabled={loading}
+          style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #ccc", cursor: loading ? "not-allowed" : "pointer", background: "#fff" }}
         >
-          Refresh
+          {loading ? "Loading..." : "Refresh"}
         </button>
       </div>
 
+      {/* ── TEMPORARY fix button — remove this box once used ── */}
+      <div style={{ background: "#fff8e1", border: "1px solid #e0c56b", borderRadius: 8, padding: 14, marginBottom: 20 }}>
+        <p style={{ margin: "0 0 8px", fontSize: 13, color: "#6b5a1e" }}>
+          ⚠️ Temporary: fixes matches stuck on the old "Pending Verification" status so they show up below.
+        </p>
+        <button
+          onClick={handleFixStuckMatches}
+          disabled={fixing}
+          style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#e0a700", color: "#fff", fontWeight: "bold", cursor: fixing ? "not-allowed" : "pointer" }}
+        >
+          {fixing ? "Fixing..." : "Fix Stuck Matches"}
+        </button>
+        {fixResult && <p style={{ marginTop: 8, fontSize: 13 }}>{fixResult}</p>}
+      </div>
+      {/* ── END TEMPORARY BLOCK ── */}
+
       {errorMsg && (
-        <div style={{ background: "#ffe6e6", color: "#c00", padding: 10, borderRadius: 6, marginBottom: 16 }}>
-          {errorMsg}
+        <div style={{ background: "#ffe6e6", color: "#c00", padding: 12, borderRadius: 6, marginBottom: 16, border: "1px solid #ffb3b3" }}>
+          <strong>Error:</strong> {errorMsg}
         </div>
       )}
 
       {loading && <p>Loading pending matches...</p>}
 
-      {!loading && matches.length === 0 && !errorMsg && (
-        <p>No pending matches to verify 🎉</p>
-      )}
+      {!loading && matches.length === 0 && !errorMsg && <p>No pending matches to verify 🎉</p>}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         {matches.map((match) => (
-          <div
-            key={match.id}
-            style={{
-              border: "1px solid #ddd",
-              borderRadius: 10,
-              padding: 16,
-              display: "flex",
-              gap: 16,
-              flexWrap: "wrap",
-            }}
-          >
+          <div key={match.id} style={{ border: "1px solid #ddd", borderRadius: 10, padding: 16, display: "flex", gap: 16, flexWrap: "wrap", background: "#fff" }}>
             <div style={{ flexShrink: 0 }}>
               {match.screenshotUrl ? (
                 <a href={match.screenshotUrl} target="_blank" rel="noopener noreferrer">
                   <img
                     src={match.screenshotUrl}
-                    alt="Match proof"
-                    style={{
-                      width: 160,
-                      height: 220,
-                      objectFit: "cover",
-                      borderRadius: 8,
-                      border: "1px solid #ccc",
-                    }}
+                    alt="Match proof screenshot"
+                    style={{ width: 160, height: 220, objectFit: "cover", borderRadius: 8, border: "1px solid #ccc", display: "block" }}
                   />
                 </a>
               ) : (
-                <div
-                  style={{
-                    width: 160,
-                    height: 220,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    background: "#f2f2f2",
-                    borderRadius: 8,
-                    color: "#999",
-                    fontSize: 12,
-                  }}
-                >
+                <div style={{ width: 160, height: 220, display: "flex", alignItems: "center", justifyContent: "center", background: "#f2f2f2", borderRadius: 8, color: "#999", fontSize: 12, textAlign: "center" }}>
                   No screenshot
                 </div>
               )}
@@ -201,24 +215,24 @@ export default function AdminVerifyPage() {
 
               <div style={{ display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
                 <label>
-                  Kills
+                  <strong>Kills</strong><br />
                   <input
                     type="number"
-                    min={0}
+                    min="0"
                     value={match.kills ?? ""}
-                    onChange={(e) => updateField(match.id, "kills", e.target.value)}
-                    style={{ width: 80, padding: 6, marginLeft: 6 }}
+                    onChange={(e) => updateField(match.id, "kills", Number(e.target.value))}
+                    style={{ width: 80, padding: 6, marginTop: 4 }}
                   />
                 </label>
 
                 <label>
-                  Rank / Placement
+                  <strong>Rank</strong><br />
                   <input
                     type="number"
-                    min={0}
+                    min="1"
                     value={match.rank ?? ""}
-                    onChange={(e) => updateField(match.id, "rank", e.target.value)}
-                    style={{ width: 80, padding: 6, marginLeft: 6 }}
+                    onChange={(e) => updateField(match.id, "rank", Number(e.target.value))}
+                    style={{ width: 70, padding: 6, marginTop: 4 }}
                   />
                 </label>
               </div>
@@ -227,15 +241,7 @@ export default function AdminVerifyPage() {
                 <button
                   onClick={() => handleAction(match, "APPROVE")}
                   disabled={processingId === match.id}
-                  style={{
-                    padding: "8px 20px",
-                    background: "green",
-                    color: "white",
-                    border: "none",
-                    borderRadius: 6,
-                    cursor: "pointer",
-                    opacity: processingId === match.id ? 0.6 : 1,
-                  }}
+                  style={{ padding: "8px 20px", background: "green", color: "white", border: "none", borderRadius: 6, cursor: processingId === match.id ? "not-allowed" : "pointer", opacity: processingId === match.id ? 0.6 : 1 }}
                 >
                   {processingId === match.id ? "Processing..." : "Approve"}
                 </button>
@@ -243,15 +249,7 @@ export default function AdminVerifyPage() {
                 <button
                   onClick={() => handleAction(match, "REJECT")}
                   disabled={processingId === match.id}
-                  style={{
-                    padding: "8px 20px",
-                    background: "crimson",
-                    color: "white",
-                    border: "none",
-                    borderRadius: 6,
-                    cursor: "pointer",
-                    opacity: processingId === match.id ? 0.6 : 1,
-                  }}
+                  style={{ padding: "8px 20px", background: "crimson", color: "white", border: "none", borderRadius: 6, cursor: processingId === match.id ? "not-allowed" : "pointer", opacity: processingId === match.id ? 0.6 : 1 }}
                 >
                   {processingId === match.id ? "Processing..." : "Reject"}
                 </button>
