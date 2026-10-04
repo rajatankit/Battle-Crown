@@ -118,7 +118,7 @@ model MatchHistory {
   tournament       Tournament?       @relation(fields: [tournamentId], references: [id])
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   tournamentReward TournamentReward?
-
+  @@unique([userId, tournamentId])
   @@index([userId])
   @@index([tournamentId])
   @@index([resultStatus])
