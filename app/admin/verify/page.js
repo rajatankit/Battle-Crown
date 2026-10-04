@@ -46,6 +46,40 @@ export default function AdminVerifyPage() {
   };
   // ── END TEMPORARY BLOCK ──────────────────────────────────────────
 
+  // ── TEMPORARY: one-click cleanup for duplicate tournament joins
+  // (from testing with the duplicate-join check disabled). Remove this
+  // block (and /api/admin/cleanup-duplicate-joins) once you've run it.
+  const [cleaning, setCleaning] = useState(false);
+  const [cleanResult, setCleanResult] = useState("");
+
+  const handleCleanupDuplicates = async () => {
+    setCleaning(true);
+    setCleanResult("");
+    try {
+      const headers = await authHeaders();
+      if (!headers) {
+        setCleanResult("Please login as admin first.");
+        return;
+      }
+      const res = await fetch("/api/admin/cleanup-duplicate-joins", {
+        method: "POST",
+        headers,
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setCleanResult(data.error || "Cleanup failed.");
+        return;
+      }
+      setCleanResult(data.message);
+    } catch (err) {
+      console.error("Cleanup duplicates error:", err);
+      setCleanResult(err?.message || "Cleanup failed.");
+    } finally {
+      setCleaning(false);
+    }
+  };
+  // ── END TEMPORARY BLOCK ──────────────────────────────────────────
+
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, () => setAuthReady(true));
     return () => unsub();
@@ -173,6 +207,22 @@ export default function AdminVerifyPage() {
           {fixing ? "Fixing..." : "Fix Stuck Matches"}
         </button>
         {fixResult && <p style={{ marginTop: 8, fontSize: 13 }}>{fixResult}</p>}
+      </div>
+      {/* ── END TEMPORARY BLOCK ── */}
+
+      {/* ── TEMPORARY cleanup-duplicates button — remove this box once used ── */}
+      <div style={{ background: "#ffe8e8", border: "1px solid #e08a8a", borderRadius: 8, padding: 14, marginBottom: 20 }}>
+        <p style={{ margin: "0 0 8px", fontSize: 13, color: "#8a2e2e" }}>
+          ⚠️ Temporary: removes duplicate tournament joins (from testing) and reverses their crowns, so the new unique-join constraint can be applied.
+        </p>
+        <button
+          onClick={handleCleanupDuplicates}
+          disabled={cleaning}
+          style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#c23b3b", color: "#fff", fontWeight: "bold", cursor: cleaning ? "not-allowed" : "pointer" }}
+        >
+          {cleaning ? "Cleaning..." : "Cleanup Duplicate Joins"}
+        </button>
+        {cleanResult && <p style={{ marginTop: 8, fontSize: 13 }}>{cleanResult}</p>}
       </div>
       {/* ── END TEMPORARY BLOCK ── */}
 
