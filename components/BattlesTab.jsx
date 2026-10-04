@@ -17,12 +17,7 @@ function normalizeGameKey(t) {
     .toLowerCase()
     .replace(/\s+/g, "");
 
-  if (
-    raw === "ff" ||
-    raw === "freefire" ||
-    raw.includes("freefire") ||
-    raw.startsWith("free")
-  ) {
+  if (raw === "ff" || raw === "freefire" || raw.includes("freefire") || raw.startsWith("free")) {
     return "ff";
   }
   if (raw === "bgmi" || raw === "pubg" || raw.includes("bgmi")) {
@@ -39,30 +34,34 @@ function getMatchTime(t) {
   return t?.date || t?.startTime || null;
 }
 
+// FIX: same casing issue as HomeTab — Firestore `status` can come in as
+// "Upcoming"/"UPCOMING"/with stray whitespace, which broke exact `===`
+// comparisons here too (tournaments silently missing from Live/Soon/
+// Completed sections). Everything below goes through this helper now.
+function normalizeStatus(t) {
+  return String(t?.status || "").trim().toLowerCase();
+}
+
 function TournamentCard({ tournament, variant = "soon", onJoin }) {
   const [currentSlide, setCurrentSlide] = useState(0);
   const isFreeFire = isFreeFireTournament(tournament);
   const maxSlots = tournament.maxSlots || (isFreeFire ? 48 : 100);
-  const displayMode =
-    tournament.mode || (isFreeFire ? "Clash Squad / BR" : "Squad / Solo");
-  const joinedCount =
-    tournament.joinedCount || tournament.joined_players_count || 0;
+  const displayMode = tournament.mode || (isFreeFire ? "Clash Squad / BR" : "Squad / Solo");
+  const joinedCount = tournament.joinedCount || tournament.joined_players_count || 0;
   const isFull = joinedCount >= maxSlots;
 
   const entryLabel = tournament.joinRewardCrowns
     ? `+${tournament.joinRewardCrowns} 👑`
     : tournament.entryFee
-      ? `₹${tournament.entryFee}`
-      : "FREE";
+    ? `₹${tournament.entryFee}`
+    : "FREE";
 
   const specialLabel =
-    tournament.isSpecial &&
-    typeof tournament.isSpecial === "string" &&
-    tournament.isSpecial !== "true"
+    tournament.isSpecial && typeof tournament.isSpecial === "string" && tournament.isSpecial !== "true"
       ? tournament.isSpecial
       : tournament.isSpecial
-        ? "Special"
-        : null;
+      ? "Special"
+      : null;
 
   useEffect(() => {
     if (!tournament.slides?.length) return;
@@ -76,23 +75,15 @@ function TournamentCard({ tournament, variant = "soon", onJoin }) {
     return (
       <div className="flex items-center gap-3 bg-[#0f141c]/90 border border-gray-800 rounded-lg p-2.5">
         {tournament.slides?.[0] && (
-          <img
-            src={tournament.slides[0]}
-            alt=""
-            className="w-14 h-14 rounded object-cover flex-shrink-0"
-          />
+          <img src={tournament.slides[0]} alt="" className="w-14 h-14 rounded object-cover flex-shrink-0" />
         )}
         <div className="flex-1 min-w-0">
           <p className="text-xs font-bold text-white truncate">
             {(tournament.game || "MATCH").toUpperCase()} • {tournament.map}
           </p>
           <p className="text-[10px] text-gray-400">
-            {tournament.placement
-              ? `Placement #${tournament.placement}`
-              : "Completed"}
-            {tournament.crownsEarned
-              ? ` • +${tournament.crownsEarned} 👑 earned`
-              : ""}
+            {tournament.placement ? `Placement #${tournament.placement}` : "Completed"}
+            {tournament.crownsEarned ? ` • +${tournament.crownsEarned} 👑 earned` : ""}
           </p>
         </div>
         <button className="bg-[#161d2b] hover:bg-cyan-950 text-cyan-400 border border-cyan-800 text-[10px] font-black uppercase px-3 py-1.5 rounded flex-shrink-0">
@@ -119,9 +110,7 @@ function TournamentCard({ tournament, variant = "soon", onJoin }) {
         <div className="absolute top-2 left-2 flex gap-1.5 flex-wrap">
           <span
             className={`text-[10px] font-mono px-2 py-0.5 border uppercase font-bold ${
-              isFreeFire
-                ? "bg-orange-950 text-orange-400 border-orange-800"
-                : "bg-black/85 text-cyan-400 border-cyan-800"
+              isFreeFire ? "bg-orange-950 text-orange-400 border-orange-800" : "bg-black/85 text-cyan-400 border-cyan-800"
             }`}
           >
             {isFreeFire ? "🔥 FREE FIRE" : "🛡️ BGMI"}
@@ -150,12 +139,9 @@ function TournamentCard({ tournament, variant = "soon", onJoin }) {
         </div>
 
         <div className="absolute bottom-2 left-3 right-3">
-          <h3 className="font-black tracking-wide uppercase text-sm text-white">
-            {tournament.title}
-          </h3>
+          <h3 className="font-black tracking-wide uppercase text-sm text-white">{tournament.title}</h3>
           <p className="text-[11px] text-gray-300 font-mono">
-            Map:{" "}
-            <span className="text-cyan-300 font-bold">{tournament.map}</span>
+            Map: <span className="text-cyan-300 font-bold">{tournament.map}</span>
           </p>
           {variant === "soon" && (
             <div className="mt-1.5">
@@ -167,20 +153,12 @@ function TournamentCard({ tournament, variant = "soon", onJoin }) {
 
       <div className="p-3.5 bg-[#0f141c]/90 flex items-center justify-between border-t border-gray-900">
         <div>
-          <span className="text-[10px] text-gray-400 font-mono uppercase block">
-            MODE
-          </span>
-          <span className="text-xs font-mono font-bold text-yellow-400">
-            {displayMode}
-          </span>
+          <span className="text-[10px] text-gray-400 font-mono uppercase block">MODE</span>
+          <span className="text-xs font-mono font-bold text-yellow-400">{displayMode}</span>
         </div>
         <div>
-          <span className="text-[10px] text-gray-400 font-mono uppercase block">
-            ENTRY
-          </span>
-          <span className="text-xs font-mono font-bold text-green-400">
-            {entryLabel}
-          </span>
+          <span className="text-[10px] text-gray-400 font-mono uppercase block">ENTRY</span>
+          <span className="text-xs font-mono font-bold text-green-400">{entryLabel}</span>
         </div>
         <button
           onClick={() => onJoin(tournament)}
@@ -189,8 +167,8 @@ function TournamentCard({ tournament, variant = "soon", onJoin }) {
             isFull
               ? "bg-gray-700 text-gray-400 cursor-not-allowed"
               : isFreeFire
-                ? "bg-orange-500 text-black hover:bg-orange-400 cursor-pointer"
-                : "bg-cyan-400 text-black hover:bg-cyan-300 cursor-pointer"
+              ? "bg-orange-500 text-black hover:bg-orange-400 cursor-pointer"
+              : "bg-cyan-400 text-black hover:bg-cyan-300 cursor-pointer"
           }`}
         >
           {isFull ? "Full" : "Join"}
@@ -222,11 +200,12 @@ export default function BattlesTab({
     [tournaments, selectedGameTab]
   );
 
-  const live = gameFiltered.filter((t) => t.status === "live");
-  const soon = gameFiltered.filter(
-    (t) => t.status !== "live" && t.status !== "completed" && t.status !== "cancelled"
-  );
-  const completed = gameFiltered.filter((t) => t.status === "completed");
+  const live = gameFiltered.filter((t) => normalizeStatus(t) === "live");
+  const soon = gameFiltered.filter((t) => {
+    const s = normalizeStatus(t);
+    return s !== "live" && s !== "completed" && s !== "cancelled";
+  });
+  const completed = gameFiltered.filter((t) => normalizeStatus(t) === "completed");
 
   const showLive = statusFilter === "all" || statusFilter === "live";
   const showSoon = statusFilter === "all" || statusFilter === "soon";
@@ -236,18 +215,13 @@ export default function BattlesTab({
     <div className="min-h-screen bg-[#0b0f17] text-white font-mono pb-24">
       <header className="flex items-center justify-between px-4 pt-5 pb-3">
         <div className="flex items-center gap-2">
-          <img
-            src="/crown-logo.png"
-            alt="Battle Crown"
-            className="w-8 h-8 object-contain"
-          />
+          <img src="/crown-logo.png" alt="Battle Crown" className="w-8 h-8 object-contain" />
           <span className="text-lg font-black italic tracking-tight">
             BATTLE <span className="text-cyan-400">CROWN</span>
           </span>
         </div>
       </header>
 
-      {/* Game switch */}
       <div className="px-4">
         <div className="relative flex rounded-xl border border-gray-800 bg-[#0d1219] overflow-hidden shadow-inner">
           <div className="absolute left-1/2 top-2.5 bottom-2.5 w-px bg-gray-800 z-10" />
@@ -284,7 +258,6 @@ export default function BattlesTab({
         </div>
       </div>
 
-      {/* Status filters */}
       <div className="px-4 mt-3 mb-1 flex items-center justify-between gap-2">
         <div className="flex gap-2 overflow-x-auto no-scrollbar">
           {STATUS_FILTERS.map((f) => (
@@ -293,9 +266,7 @@ export default function BattlesTab({
               key={f.key}
               onClick={() => setStatusFilter(f.key)}
               className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase border transition-colors ${
-                statusFilter === f.key
-                  ? "bg-cyan-400 text-black border-cyan-400"
-                  : "bg-[#161d2b] text-gray-400 border-gray-800"
+                statusFilter === f.key ? "bg-cyan-400 text-black border-cyan-400" : "bg-[#161d2b] text-gray-400 border-gray-800"
               }`}
             >
               {f.label}
@@ -316,23 +287,14 @@ export default function BattlesTab({
       {showLive && (
         <section className="px-4 mt-5">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-[11px] font-bold uppercase tracking-widest text-gray-400">
-              🔴 Live Tournaments
-            </h2>
+            <h2 className="text-[11px] font-bold uppercase tracking-widest text-gray-400">🔴 Live Tournaments</h2>
           </div>
           {live.length === 0 ? (
-            <p className="text-[11px] text-gray-500 italic py-2">
-              No live matches right now.
-            </p>
+            <p className="text-[11px] text-gray-500 italic py-2">No live matches right now.</p>
           ) : (
             <div className="space-y-4">
               {live.map((t) => (
-                <TournamentCard
-                  key={t.id}
-                  tournament={t}
-                  variant="live"
-                  onJoin={onJoin}
-                />
+                <TournamentCard key={t.id} tournament={t} variant="live" onJoin={onJoin} />
               ))}
             </div>
           )}
@@ -341,22 +303,13 @@ export default function BattlesTab({
 
       {showSoon && (
         <section className="px-4 mt-6">
-          <h2 className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2">
-            // Starting Soon
-          </h2>
+          <h2 className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2">// Starting Soon</h2>
           {soon.length === 0 ? (
-            <p className="text-[11px] text-gray-500 italic py-2">
-              No upcoming matches — check back soon.
-            </p>
+            <p className="text-[11px] text-gray-500 italic py-2">No upcoming matches — check back soon.</p>
           ) : (
             <div className="space-y-4">
               {soon.map((t) => (
-                <TournamentCard
-                  key={t.id}
-                  tournament={t}
-                  variant="soon"
-                  onJoin={onJoin}
-                />
+                <TournamentCard key={t.id} tournament={t} variant="soon" onJoin={onJoin} />
               ))}
             </div>
           )}
@@ -365,22 +318,13 @@ export default function BattlesTab({
 
       {showCompleted && (
         <section className="px-4 mt-6">
-          <h2 className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2">
-            // Completed Matches
-          </h2>
+          <h2 className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2">// Completed Matches</h2>
           {completed.length === 0 ? (
-            <p className="text-[11px] text-gray-500 italic py-2">
-              No completed matches yet.
-            </p>
+            <p className="text-[11px] text-gray-500 italic py-2">No completed matches yet.</p>
           ) : (
             <div className="space-y-2">
               {completed.map((t) => (
-                <TournamentCard
-                  key={t.id}
-                  tournament={t}
-                  variant="completed"
-                  onJoin={onJoin}
-                />
+                <TournamentCard key={t.id} tournament={t} variant="completed" onJoin={onJoin} />
               ))}
             </div>
           )}
