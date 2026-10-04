@@ -11,42 +11,88 @@ const STATUS_FILTERS = [
   { key: "completed", label: "Completed" },
 ];
 
+/** Normalize game field → "bgmi" | "ff" | null */
+function normalizeGameKey(t) {
+  const raw = String(t?.game || t?.gameType || "")
+    .toLowerCase()
+    .replace(/\s+/g, "");
+
+  if (
+    raw === "ff" ||
+    raw === "freefire" ||
+    raw.includes("freefire") ||
+    raw.startsWith("free")
+  ) {
+    return "ff";
+  }
+  if (raw === "bgmi" || raw === "pubg" || raw.includes("bgmi")) {
+    return "bgmi";
+  }
+  return null;
+}
+
+function isFreeFireTournament(t) {
+  return normalizeGameKey(t) === "ff";
+}
+
+function getMatchTime(t) {
+  return t?.date || t?.startTime || null;
+}
+
 function TournamentCard({ tournament, variant = "soon", onJoin }) {
   const [currentSlide, setCurrentSlide] = useState(0);
-  const gameName = (tournament.game || tournament.gameType || tournament.title || "").toLowerCase();
-  const isFreeFire = gameName.includes("free") || gameName.includes("ff");
-  const maxSlots = tournament.maxSlots || (isFreeFire ? 50 : 100);
-  const displayMode = tournament.mode || (isFreeFire ? "Clash Squad / BR" : "Squad / Solo");
-  const joinedCount = tournament.joinedCount || tournament.joined_players_count || 0;
+  const isFreeFire = isFreeFireTournament(tournament);
+  const maxSlots = tournament.maxSlots || (isFreeFire ? 48 : 100);
+  const displayMode =
+    tournament.mode || (isFreeFire ? "Clash Squad / BR" : "Squad / Solo");
+  const joinedCount =
+    tournament.joinedCount || tournament.joined_players_count || 0;
   const isFull = joinedCount >= maxSlots;
 
-  // Crown-first entry label, falls back to ₹ for any tournament doc that
-  // hasn't been migrated to crown fields yet.
   const entryLabel = tournament.joinRewardCrowns
     ? `+${tournament.joinRewardCrowns} 👑`
     : tournament.entryFee
-    ? `₹${tournament.entryFee}`
-    : "FREE";
+      ? `₹${tournament.entryFee}`
+      : "FREE";
+
+  const specialLabel =
+    tournament.isSpecial &&
+    typeof tournament.isSpecial === "string" &&
+    tournament.isSpecial !== "true"
+      ? tournament.isSpecial
+      : tournament.isSpecial
+        ? "Special"
+        : null;
 
   useEffect(() => {
     if (!tournament.slides?.length) return;
-    const t = setInterval(() => setCurrentSlide((p) => (p + 1) % tournament.slides.length), 3500);
-    return () => clearInterval(t);
+    const id = setInterval(() => {
+      setCurrentSlide((p) => (p + 1) % tournament.slides.length);
+    }, 3500);
+    return () => clearInterval(id);
   }, [tournament.slides?.length]);
 
   if (variant === "completed") {
     return (
       <div className="flex items-center gap-3 bg-[#0f141c]/90 border border-gray-800 rounded-lg p-2.5">
         {tournament.slides?.[0] && (
-          <img src={tournament.slides[0]} alt="" className="w-14 h-14 rounded object-cover flex-shrink-0" />
+          <img
+            src={tournament.slides[0]}
+            alt=""
+            className="w-14 h-14 rounded object-cover flex-shrink-0"
+          />
         )}
         <div className="flex-1 min-w-0">
           <p className="text-xs font-bold text-white truncate">
             {(tournament.game || "MATCH").toUpperCase()} • {tournament.map}
           </p>
           <p className="text-[10px] text-gray-400">
-            {tournament.placement ? `Placement #${tournament.placement}` : "Completed"}
-            {tournament.crownsEarned ? ` • +${tournament.crownsEarned} 👑 earned` : ""}
+            {tournament.placement
+              ? `Placement #${tournament.placement}`
+              : "Completed"}
+            {tournament.crownsEarned
+              ? ` • +${tournament.crownsEarned} 👑 earned`
+              : ""}
           </p>
         </div>
         <button className="bg-[#161d2b] hover:bg-cyan-950 text-cyan-400 border border-cyan-800 text-[10px] font-black uppercase px-3 py-1.5 rounded flex-shrink-0">
@@ -69,8 +115,15 @@ function TournamentCard({ tournament, variant = "soon", onJoin }) {
           <div className="w-full h-full bg-gradient-to-br from-[#0e2233] to-[#0b0f17]" />
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-[#0b0f17] via-transparent to-black/40" />
-        <div className="absolute top-2 left-2 flex gap-1.5">
-          <span className={`text-[10px] font-mono px-2 py-0.5 border uppercase font-bold ${isFreeFire ? "bg-orange-950 text-orange-400 border-orange-800" : "bg-black/85 text-cyan-400 border-cyan-800"}`}>
+
+        <div className="absolute top-2 left-2 flex gap-1.5 flex-wrap">
+          <span
+            className={`text-[10px] font-mono px-2 py-0.5 border uppercase font-bold ${
+              isFreeFire
+                ? "bg-orange-950 text-orange-400 border-orange-800"
+                : "bg-black/85 text-cyan-400 border-cyan-800"
+            }`}
+          >
             {isFreeFire ? "🔥 FREE FIRE" : "🛡️ BGMI"}
           </span>
           {variant === "live" && (
@@ -78,7 +131,13 @@ function TournamentCard({ tournament, variant = "soon", onJoin }) {
               LIVE
             </span>
           )}
+          {specialLabel && (
+            <span className="text-[10px] font-mono px-2 py-0.5 border uppercase font-bold bg-purple-950 text-purple-300 border-purple-700">
+              🎖️ {specialLabel}
+            </span>
+          )}
         </div>
+
         <div className="absolute top-2 right-2 flex items-center gap-1.5">
           {tournament.firstPrizeCrowns > 0 && (
             <span className="text-xs font-bold px-2.5 py-1 bg-black/90 border border-yellow-500/50 text-yellow-400 rounded-md shadow-lg backdrop-blur-sm">
@@ -89,26 +148,39 @@ function TournamentCard({ tournament, variant = "soon", onJoin }) {
             {joinedCount} / {maxSlots}
           </span>
         </div>
+
         <div className="absolute bottom-2 left-3 right-3">
-          <h3 className="font-black tracking-wide uppercase text-sm text-white">{tournament.title}</h3>
+          <h3 className="font-black tracking-wide uppercase text-sm text-white">
+            {tournament.title}
+          </h3>
           <p className="text-[11px] text-gray-300 font-mono">
-            Map: <span className="text-cyan-300 font-bold">{tournament.map}</span>
+            Map:{" "}
+            <span className="text-cyan-300 font-bold">{tournament.map}</span>
           </p>
           {variant === "soon" && (
             <div className="mt-1.5">
-              <MatchCountdown matchTime={tournament.date} />
+              <MatchCountdown matchTime={getMatchTime(tournament)} />
             </div>
           )}
         </div>
       </div>
+
       <div className="p-3.5 bg-[#0f141c]/90 flex items-center justify-between border-t border-gray-900">
         <div>
-          <span className="text-[10px] text-gray-400 font-mono uppercase block">MODE</span>
-          <span className="text-xs font-mono font-bold text-yellow-400">{displayMode}</span>
+          <span className="text-[10px] text-gray-400 font-mono uppercase block">
+            MODE
+          </span>
+          <span className="text-xs font-mono font-bold text-yellow-400">
+            {displayMode}
+          </span>
         </div>
         <div>
-          <span className="text-[10px] text-gray-400 font-mono uppercase block">ENTRY</span>
-          <span className="text-xs font-mono font-bold text-green-400">{entryLabel}</span>
+          <span className="text-[10px] text-gray-400 font-mono uppercase block">
+            ENTRY
+          </span>
+          <span className="text-xs font-mono font-bold text-green-400">
+            {entryLabel}
+          </span>
         </div>
         <button
           onClick={() => onJoin(tournament)}
@@ -128,18 +200,6 @@ function TournamentCard({ tournament, variant = "soon", onJoin }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// BattlesTab — mobile "Battles" screen: game switch (BGMI / Free Fire),
-// status filter chips, and live / starting-soon / completed sections.
-//
-// Props:
-//   tournaments        array — full live tournament list from Firestore
-//   selectedGameTab     "bgmi" | "ff"
-//   setSelectedGameTab  function
-//   onJoin(tournament)  function — opens the join flow (rules modal etc.)
-//   onNavigate(tab)     function — bottom nav
-//   activeTab           string — current bottom-nav tab ("battles" here)
-// ─────────────────────────────────────────────────────────────────────────
 export default function BattlesTab({
   tournaments = [],
   selectedGameTab = "bgmi",
@@ -154,16 +214,18 @@ export default function BattlesTab({
   const gameFiltered = useMemo(
     () =>
       tournaments.filter((t) => {
-        const name = (t.game || t.gameType || "").toLowerCase();
-        return selectedGameTab === "ff"
-          ? name.includes("free") || name.includes("ff")
-          : name.includes("bgmi") || (!name.includes("free") && !name.includes("ff"));
+        const key = normalizeGameKey(t);
+        if (selectedGameTab === "ff") return key === "ff";
+        if (selectedGameTab === "bgmi") return key === "bgmi";
+        return false;
       }),
     [tournaments, selectedGameTab]
   );
 
   const live = gameFiltered.filter((t) => t.status === "live");
-  const soon = gameFiltered.filter((t) => t.status !== "live" && t.status !== "completed");
+  const soon = gameFiltered.filter(
+    (t) => t.status !== "live" && t.status !== "completed" && t.status !== "cancelled"
+  );
   const completed = gameFiltered.filter((t) => t.status === "completed");
 
   const showLive = statusFilter === "all" || statusFilter === "live";
@@ -172,28 +234,26 @@ export default function BattlesTab({
 
   return (
     <div className="min-h-screen bg-[#0b0f17] text-white font-mono pb-24">
-      {/* Top bar */}
       <header className="flex items-center justify-between px-4 pt-5 pb-3">
         <div className="flex items-center gap-2">
-  <img
-    src="/crown-logo.png"
-    alt="Battle Crown"
-    className="w-8 h-8 object-contain"
-  />
-
-  <span className="text-lg font-black italic tracking-tight">
-    BATTLE <span className="text-cyan-400">CROWN</span>
-  </span>
-</div>
+          <img
+            src="/crown-logo.png"
+            alt="Battle Crown"
+            className="w-8 h-8 object-contain"
+          />
+          <span className="text-lg font-black italic tracking-tight">
+            BATTLE <span className="text-cyan-400">CROWN</span>
+          </span>
+        </div>
       </header>
 
-      {/* ── Game switch — segmented control with per-side shading ───────── */}
+      {/* Game switch */}
       <div className="px-4">
         <div className="relative flex rounded-xl border border-gray-800 bg-[#0d1219] overflow-hidden shadow-inner">
-          {/* center divider */}
           <div className="absolute left-1/2 top-2.5 bottom-2.5 w-px bg-gray-800 z-10" />
 
           <button
+            type="button"
             onClick={() => setSelectedGameTab("bgmi")}
             className={`relative flex-1 py-3 flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wide transition-all duration-300 ${
               selectedGameTab === "bgmi"
@@ -208,6 +268,7 @@ export default function BattlesTab({
           </button>
 
           <button
+            type="button"
             onClick={() => setSelectedGameTab("ff")}
             className={`relative flex-1 py-3 flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wide transition-all duration-300 ${
               selectedGameTab === "ff"
@@ -223,11 +284,12 @@ export default function BattlesTab({
         </div>
       </div>
 
-    {/* Status filter chips */}
+      {/* Status filters */}
       <div className="px-4 mt-3 mb-1 flex items-center justify-between gap-2">
         <div className="flex gap-2 overflow-x-auto no-scrollbar">
           {STATUS_FILTERS.map((f) => (
             <button
+              type="button"
               key={f.key}
               onClick={() => setStatusFilter(f.key)}
               className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase border transition-colors ${
@@ -242,6 +304,7 @@ export default function BattlesTab({
         </div>
 
         <button
+          type="button"
           onClick={onMatchHistoryClick}
           title="Match History"
           className="w-9 h-9 flex-shrink-0 bg-[#111824]/90 border border-gray-600/40 text-gray-300 rounded-lg flex items-center justify-center hover:border-gray-400 hover:bg-black/60 transition-all"
@@ -250,7 +313,6 @@ export default function BattlesTab({
         </button>
       </div>
 
-      {/* Live tournaments */}
       {showLive && (
         <section className="px-4 mt-5">
           <div className="flex items-center justify-between mb-2">
@@ -259,47 +321,66 @@ export default function BattlesTab({
             </h2>
           </div>
           {live.length === 0 ? (
-            <p className="text-[11px] text-gray-500 italic py-2">No live matches right now.</p>
+            <p className="text-[11px] text-gray-500 italic py-2">
+              No live matches right now.
+            </p>
           ) : (
             <div className="space-y-4">
               {live.map((t) => (
-                <TournamentCard key={t.id} tournament={t} variant="live" onJoin={onJoin} />
+                <TournamentCard
+                  key={t.id}
+                  tournament={t}
+                  variant="live"
+                  onJoin={onJoin}
+                />
               ))}
             </div>
           )}
         </section>
       )}
 
-      {/* Starting soon */}
       {showSoon && (
         <section className="px-4 mt-6">
           <h2 className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2">
             // Starting Soon
           </h2>
           {soon.length === 0 ? (
-            <p className="text-[11px] text-gray-500 italic py-2">No upcoming matches — check back soon.</p>
+            <p className="text-[11px] text-gray-500 italic py-2">
+              No upcoming matches — check back soon.
+            </p>
           ) : (
             <div className="space-y-4">
               {soon.map((t) => (
-                <TournamentCard key={t.id} tournament={t} variant="soon" onJoin={onJoin} />
+                <TournamentCard
+                  key={t.id}
+                  tournament={t}
+                  variant="soon"
+                  onJoin={onJoin}
+                />
               ))}
             </div>
           )}
         </section>
       )}
 
-      {/* Completed */}
       {showCompleted && (
         <section className="px-4 mt-6">
           <h2 className="text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2">
             // Completed Matches
           </h2>
           {completed.length === 0 ? (
-            <p className="text-[11px] text-gray-500 italic py-2">No completed matches yet.</p>
+            <p className="text-[11px] text-gray-500 italic py-2">
+              No completed matches yet.
+            </p>
           ) : (
             <div className="space-y-2">
               {completed.map((t) => (
-                <TournamentCard key={t.id} tournament={t} variant="completed" onJoin={onJoin} />
+                <TournamentCard
+                  key={t.id}
+                  tournament={t}
+                  variant="completed"
+                  onJoin={onJoin}
+                />
               ))}
             </div>
           )}
