@@ -26,7 +26,13 @@ export async function POST(req, { params }) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const { ign, uid: gameUid } = body;
+    const { ign, uid: gameUid, whatsapp, whatsappNumber, phone } = body;
+
+    const wa =
+      (whatsapp || whatsappNumber || phone || "")
+        .toString()
+        .trim()
+        .replace(/\s+/g, "") || null;
 
     const user = await prisma.user.findUnique({ where: { uid } });
     if (!user) {
@@ -43,12 +49,14 @@ export async function POST(req, { params }) {
       );
     }
 
-    // Tournament resolve — numeric id YA firestoreId dono support
+    // Tournament resolve — numeric id YA firestoreId
     let tournament = null;
     const numericId = parseInt(idParam, 10);
 
     if (!isNaN(numericId) && String(numericId) === String(idParam).trim()) {
-      tournament = await prisma.tournament.findUnique({ where: { id: numericId } });
+      tournament = await prisma.tournament.findUnique({
+        where: { id: numericId },
+      });
     }
     if (!tournament) {
       tournament = await prisma.tournament.findUnique({
@@ -64,6 +72,20 @@ export async function POST(req, { params }) {
 
     const tournamentId = tournament.id;
 
+    // Optional early duplicate check (unique constraint still catches races)
+    const alreadyJoined = await prisma.matchHistory.findFirst({
+      where: { userId: user.id, tournamentId },
+    });
+    if (alreadyJoined) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "You have already joined this tournament.",
+        },
+        { status: 409 }
+      );
+    }
+
     if ((tournament.status || "").toLowerCase() !== "upcoming") {
       return NextResponse.json(
         { success: false, message: "Registration closed" },
@@ -78,14 +100,27 @@ export async function POST(req, { params }) {
       );
     }
 
-    if (ign || gameUid) {
-      const game = (tournament.game || "").toLowerCase();
-      const isFreeFire = game.includes("free");
+    const game = (tournament.game || "").toLowerCase().replace(/\s+/g, "");
+    const isFreeFire =
+      game === "ff" ||
+      game.includes("freefire") ||
+      game.startsWith("free");
+
+    if (ign || gameUid || wa) {
       await prisma.user.update({
         where: { id: user.id },
-        data: isFreeFire
-          ? { ffIgn: ign || user.ffIgn, ffUid: gameUid || user.ffUid }
-          : { bgmiIgn: ign || user.bgmiIgn, bgmiUid: gameUid || user.bgmiUid },
+        data: {
+          ...(wa ? { whatsappNumber: wa } : {}),
+          ...(isFreeFire
+            ? {
+                ffIgn: ign || user.ffIgn,
+                ffUid: gameUid || user.ffUid,
+              }
+            : {
+                bgmiIgn: ign || user.bgmiIgn,
+                bgmiUid: gameUid || user.bgmiUid,
+              }),
+        },
       });
     }
 
@@ -94,9 +129,6 @@ export async function POST(req, { params }) {
     try {
       const result = await prisma.$transaction(
         async (tx) => {
-          // DB-level unique constraint (@@unique([userId, tournamentId]) in
-          // schema) catches duplicate joins reliably, even under concurrent
-          // double-clicks — a findFirst() check before this point can race.
           const match = await tx.matchHistory.create({
             data: {
               userId: user.id,
@@ -157,10 +189,6 @@ export async function POST(req, { params }) {
         { maxWait: 10000, timeout: 15000 }
       );
 
-      // ── Keep Firestore's joinedCount in sync ──────────────────────────
-      // The website's live tournament list reads from Firestore
-      // (onSnapshot), not Postgres directly — without this write-back,
-      // joinedCount on the UI never moves even though Postgres is correct.
       if (tournament.firestoreId) {
         try {
           await adminDb
@@ -168,10 +196,6 @@ export async function POST(req, { params }) {
             .doc(tournament.firestoreId)
             .update({ joinedCount: FieldValue.increment(1) });
         } catch (fsErr) {
-          // Don't fail the whole join if this write-back fails — log and
-          // move on, the next /api/tournaments/sync call will self-heal
-          // from Postgres... actually it won't (sync is Firestore -> PG
-          // only), so this is logged loudly for visibility.
           console.error("Firestore joinedCount sync failed:", fsErr);
         }
       }
@@ -184,10 +208,12 @@ export async function POST(req, { params }) {
         crownsEarned: result.crownsEarned,
       });
     } catch (txError) {
-      // Prisma P2002 = unique constraint violation = genuinely already joined
       if (txError?.code === "P2002") {
         return NextResponse.json(
-          { success: false, message: "You have already joined this tournament." },
+          {
+            success: false,
+            message: "You have already joined this tournament.",
+          },
           { status: 409 }
         );
       }
