@@ -21,6 +21,7 @@ model User {
   lastMatchAt           DateTime?
   createdAt             DateTime            @default(now())
   upiId                 String?
+  whatsappNumber        String?
   fcmToken              String?
   lastProtectionDecayAt DateTime?
   bgmiIgn               String?
@@ -118,6 +119,8 @@ model MatchHistory {
   tournament       Tournament?       @relation(fields: [tournamentId], references: [id])
   user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   tournamentReward TournamentReward?
+
+  
   @@unique([userId, tournamentId])
   @@index([userId])
   @@index([tournamentId])
