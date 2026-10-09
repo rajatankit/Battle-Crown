@@ -50,6 +50,28 @@ function TournamentCard({ tournament, variant = "soon", onJoin }) {
   const joinedCount = tournament.joinedCount || tournament.joined_players_count || 0;
   const isFull = joinedCount >= maxSlots;
 
+  // Match the backend's source of truth: registration closes once
+  // startTime has passed, independent of the `status` text field
+  // (which has repeatedly had casing/whitespace typos). Ticks every
+  // second so the button disables itself live, without a refresh.
+  const [timeUp, setTimeUp] = useState(() => {
+    const t = getMatchTime(tournament);
+    const target = t ? new Date(t).getTime() : null;
+    return target ? Date.now() >= target : false;
+  });
+
+  useEffect(() => {
+    const t = getMatchTime(tournament);
+    const target = t ? new Date(t).getTime() : null;
+    if (!target) return;
+    const tick = () => setTimeUp(Date.now() >= target);
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [tournament]);
+
+  const registrationClosed = timeUp || isFull;
+
   const entryLabel = tournament.joinRewardCrowns
     ? `+${tournament.joinRewardCrowns} 👑`
     : tournament.entryFee
@@ -162,16 +184,16 @@ function TournamentCard({ tournament, variant = "soon", onJoin }) {
         </div>
         <button
           onClick={() => onJoin(tournament)}
-          disabled={isFull}
+          disabled={registrationClosed}
           className={`px-4 py-2 font-black text-xs uppercase tracking-wider transition-all shadow-lg ${
-            isFull
+            registrationClosed
               ? "bg-gray-700 text-gray-400 cursor-not-allowed"
               : isFreeFire
               ? "bg-orange-500 text-black hover:bg-orange-400 cursor-pointer"
               : "bg-cyan-400 text-black hover:bg-cyan-300 cursor-pointer"
           }`}
         >
-          {isFull ? "Full" : "Join"}
+          {isFull ? "Full" : timeUp ? "Closed" : "Join"}
         </button>
       </div>
     </div>
@@ -189,6 +211,14 @@ export default function BattlesTab({
 }) {
   const [statusFilter, setStatusFilter] = useState("all");
 
+  // Re-bucket every 15s so a tournament moves Soon → Completed on its own
+  // as startTime passes, without needing a page refresh.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 15000);
+    return () => clearInterval(id);
+  }, []);
+
   const gameFiltered = useMemo(
     () =>
       tournaments.filter((t) => {
@@ -200,12 +230,44 @@ export default function BattlesTab({
     [tournaments, selectedGameTab]
   );
 
-  const live = gameFiltered.filter((t) => normalizeStatus(t) === "live");
-  const soon = gameFiltered.filter((t) => {
-    const s = normalizeStatus(t);
-    return s !== "live" && s !== "completed" && s !== "cancelled";
-  });
-  const completed = gameFiltered.filter((t) => normalizeStatus(t) === "completed");
+  // LIVE — officially live, OR flagged Featured/Special (so the "main" or
+  // spotlight tournament shows here even before its own status flips to
+  // "live"). Takes priority over the other two buckets.
+  const live = useMemo(
+    () =>
+      gameFiltered.filter((t) => {
+        const s = normalizeStatus(t);
+        return s === "live" || Boolean(t.isFeatured) || Boolean(t.isSpecial);
+      }),
+    [gameFiltered]
+  );
+  const liveIds = useMemo(() => new Set(live.map((t) => t.id)), [live]);
+
+  // COMPLETED — registration time has passed (startTime <= now), purely
+  // time-based, regardless of whether admin has verified results yet.
+  const completed = useMemo(
+    () =>
+      gameFiltered.filter((t) => {
+        if (liveIds.has(t.id)) return false;
+        const matchTime = getMatchTime(t);
+        const target = matchTime ? new Date(matchTime).getTime() : null;
+        return target ? Date.now() >= target : false;
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gameFiltered, liveIds, tick]
+  );
+  const completedIds = useMemo(() => new Set(completed.map((t) => t.id)), [completed]);
+
+  // SOON — everything else: still has time left, not live/featured, and
+  // not explicitly cancelled.
+  const soon = useMemo(
+    () =>
+      gameFiltered.filter((t) => {
+        if (liveIds.has(t.id) || completedIds.has(t.id)) return false;
+        return normalizeStatus(t) !== "cancelled";
+      }),
+    [gameFiltered, liveIds, completedIds]
+  );
 
   const showLive = statusFilter === "all" || statusFilter === "live";
   const showSoon = statusFilter === "all" || statusFilter === "soon";

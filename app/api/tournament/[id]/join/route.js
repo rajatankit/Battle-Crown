@@ -86,9 +86,27 @@ export async function POST(req, { params }) {
       );
     }
 
-    if ((tournament.status || "").toLowerCase() !== "upcoming") {
+    // ── Registration window check ───────────────────────────────────
+    // Time is the SOURCE OF TRUTH, not the `status` text field — status
+    // gets typed by hand in Firestore and has repeatedly had casing/
+    // whitespace typos ("Upcoming", "upcoming ") that silently broke a
+    // pure string-equality check here even while the match hadn't
+    // actually started yet. Now: registration stays open as long as
+    // startTime hasn't passed, and closes automatically the instant it
+    // does — no manual status flip needed for this to work correctly.
+    // `status` is still checked for explicit admin actions (cancelled).
+    const normalizedStatus = (tournament.status || "").trim().toLowerCase();
+
+    if (normalizedStatus === "cancelled" || normalizedStatus === "completed") {
       return NextResponse.json(
         { success: false, message: "Registration closed" },
+        { status: 400 }
+      );
+    }
+
+    if (tournament.startTime && new Date(tournament.startTime).getTime() <= Date.now()) {
+      return NextResponse.json(
+        { success: false, message: "Registration closed — match has started" },
         { status: 400 }
       );
     }
