@@ -15,10 +15,33 @@ export async function POST(req) {
       );
     }
 
+    // `tournamentId` here is the Firestore document ID (a string,
+    // e.g. "001") — the admin page reads tournaments from Firestore,
+    // not Postgres. MatchHistory.tournamentId in Postgres is an Int
+    // foreign key to Tournament.id, NOT the Firestore ID. So we
+    // first resolve the Firestore ID to the matching Postgres
+    // Tournament row (via its `firestoreId` field) and use *that*
+    // row's numeric `id` for the actual query below.
+    const tournament = await prisma.tournament.findUnique({
+      where: { firestoreId: String(tournamentId) },
+      select: { id: true },
+    });
+
+    if (!tournament) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Tournament not found in database (no matching firestoreId). Make sure this tournament was synced to Postgres.",
+        },
+        { status: 404 }
+      );
+    }
+
     // Get all players who joined this tournament
     const players = await prisma.matchHistory.findMany({
       where: {
-        tournamentId: String(tournamentId),
+        tournamentId: tournament.id,
       },
       select: {
         userId: true,
